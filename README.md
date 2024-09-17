@@ -1,5 +1,10 @@
 # 🚀 Vite Server Actions
 
+[![npm version](https://img.shields.io/npm/v/vite-plugin-server-actions.svg?style=flat)](https://www.npmjs.com/package/vite-plugin-server-actions)
+[![Downloads](https://img.shields.io/npm/dm/vite-plugin-server-actions.svg?style=flat)](https://www.npmjs.com/package/vite-plugin-server-actions)
+[![Build Status](https://img.shields.io/github/workflow/status/HelgeSverre/vite-plugin-server-actions/CI)](https://github.com/HelgeSverre/vite-plugin-server-actions/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 Seamlessly integrate server-side functions into your Vite projects with automatic API endpoints and client-side proxies.
 
 ## ✨ Features
@@ -25,7 +30,7 @@ import serverActions from 'helgesverre/vite-plugin-server-actions'
 
 export default defineConfig({
 	plugins: [
-		serverActions()
+		serverActions(),
 	]
 })
 ```
@@ -129,7 +134,7 @@ sequenceDiagram
 ## 🤝 Contributing
 
 Contributions, issues, and feature requests are welcome! Feel free to
-check [issues page](https://github.com/yourusername/vite-server-actions/issues).
+check [issues page](https://github.com/helgesverre/vite-server-actions/issues).
 
 ## 📝 License
 
