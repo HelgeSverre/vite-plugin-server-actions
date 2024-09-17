@@ -22,8 +22,7 @@ export default function viteServerFunctionsPlugin() {
 		async resolveId(source, importer) {
 			if (source.endsWith('.server.js') && importer) {
 				logger.info(`🔍 Resolving server file: ${source} imported in ${importer}`);
-				// This is a client-side import of a server file
-				return source; // Mark it as "resolved" so we can handle it in the load hook
+				return source;
 			}
 		},
 
