@@ -8,11 +8,11 @@ export default function viteServerFunctionsPlugin() {
 	let logger;
 
 	return {
-		name: 'vite-server-functions-plugin',
+		name: 'vite-plugin-server-actions',
 
 		configureServer(server) {
 			logger = server.config.logger;
-			logger.info('🔧 Configuring vite-server-functions-plugin');
+			logger.info('🔧 Configuring vite-plugin-server-actions');
 			app = express();
 			app.use(express.json()); // Add this line to parse JSON bodies
 			server.middlewares.use(app);
@@ -98,7 +98,7 @@ export default function viteServerFunctionsPlugin() {
 			}
 		},
 
-		generateBundle() {
+		async generateBundle() {
 			logger.info('📦 Generating production server.js file');
 			let serverCode = `
         import express from 'express';
@@ -129,7 +129,7 @@ export default function viteServerFunctionsPlugin() {
       `;
 
 			logger.info('💾 Writing production server.js file');
-			fs.writeFile('dist/server.js', serverCode);
+			await fs.writeFile('dist/server.js', serverCode);
 			logger.info('✅  Production server.js file generated');
 		}
 	};

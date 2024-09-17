@@ -53,6 +53,5 @@ export async function updateTodo(id, updates) {
 export async function deleteTodo(id) {
 	const todos = await readTodos();
 	const newTodos = todos.filter((todo) => todo.id != id);
-	console.log(newTodos);
 	await writeTodos(newTodos);
 }
