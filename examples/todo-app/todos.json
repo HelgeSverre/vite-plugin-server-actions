@@ -1,0 +1,17 @@
+[
+	{
+		"id": 2,
+		"text": "Build an app",
+		"completed": true
+	},
+	{
+		"id": 1726556786081,
+		"text": "test",
+		"completed": false
+	},
+	{
+		"id": 1726556789250,
+		"text": "a new todo",
+		"completed": true
+	}
+]

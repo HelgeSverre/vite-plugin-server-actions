@@ -1,0 +1,30 @@
+{
+  "name": "vite-plugin-server-actions",
+  "version": "1.0.0",
+  "description": "Seamlessly integrate server-side functions into your Vite projects with automatic API endpoints and client-side proxies.",
+  "keywords": [
+    "vite-plugin",
+    "server",
+    "functions",
+    "actions"
+  ],
+  "license": "MIT",
+  "author": {
+    "name": "Helge Sverre",
+    "email": "helge.sverre@gmail.com",
+    "url": "https://helgesver.re"
+  },
+  "main": "index.js",
+  "scripts": {
+    "format": "npx prettier --write src/",
+    "sort": "npx sort-package-json"
+  },
+  "devDependencies": {
+    "express": "^4.21.0",
+    "prettier": "^3.3.3",
+    "vitest": "^0.34.0"
+  },
+  "peerDependencies": {
+    "vite": "^2.0.0 || ^3.0.0 || ^4.0.0"
+  }
+}

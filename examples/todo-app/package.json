@@ -1,0 +1,22 @@
+{
+  "name": "todo-app",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite",
+    "format": "npx prettier --write .",
+    "preview": "vite preview",
+    "sort": "npx sort-package-json"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^3.1.1",
+    "prettier": "^3.3.3",
+    "prettier-plugin-svelte": "^3.2.6",
+    "prettier-plugin-tailwindcss": "^0.6.5",
+    "svelte": "^4.2.18",
+    "vite": "^5.4.1",
+    "vite-plugin-inspect": "^0.8.7"
+  }
+}
