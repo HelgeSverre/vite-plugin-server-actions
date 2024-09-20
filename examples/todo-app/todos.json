@@ -1,32 +1,27 @@
 [
-	{
-		"id": 1726556789250,
-		"text": "a new todo",
-		"completed": true
-	},
-	{
-		"id": 1726802630575,
-		"text": "new todo",
-		"completed": false
-	},
-	{
-		"id": 1726802632329,
-		"text": "another one",
-		"completed": false
-	},
-	{
-		"id": 1726804643450,
-		"text": "testing 123",
-		"completed": false
-	},
-	{
-		"id": 1726804643450,
-		"text": "lorem ipsum",
-		"completed": true
-	},
-	{
-		"id": 1726806390358,
-		"text": "testing lanana",
-		"completed": false
-	}
+  {
+    "id": 1726802630575,
+    "text": "new todo",
+    "completed": true
+  },
+  {
+    "id": 1726806390358,
+    "text": "testing lanana",
+    "completed": true
+  },
+  {
+    "id": 1726811443208,
+    "text": "test",
+    "completed": false
+  },
+  {
+    "id": 1726817013493,
+    "text": "test",
+    "completed": false
+  },
+  {
+    "id": 1726817034989,
+    "text": "test",
+    "completed": false
+  }
 ]

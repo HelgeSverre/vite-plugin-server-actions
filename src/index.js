@@ -1,11 +1,11 @@
 import fs from "fs/promises";
 import path from "path";
 import express from "express";
+import {rollup} from 'rollup';
 
 export default function viteServerFunctionsPlugin() {
 	const serverFunctions = new Map();
 	let app;
-	const chunks = new Map();
 
 	return {
 		name: "vite-plugin-server-actions",
@@ -18,15 +18,15 @@ export default function viteServerFunctionsPlugin() {
 
 		async resolveId(source, importer) {
 			if (source.endsWith(".server.js") && importer) {
-				return source;
+				const resolvedPath = path.resolve(path.dirname(importer), source);
+				return resolvedPath;
 			}
 		},
 
 		async load(id) {
 			if (id.endsWith(".server.js")) {
-				const moduleName = path.basename(id, ".server.js");
 				const code = await fs.readFile(id, "utf-8");
-
+				const moduleName = path.basename(id, ".server.js");
 				const exportRegex = /export\s+(async\s+)?function\s+(\w+)/g;
 				const functions = [];
 				let match;
@@ -34,10 +34,8 @@ export default function viteServerFunctionsPlugin() {
 					functions.push(match[2]);
 				}
 
-				console.log(`Found server functions for ${moduleName}: ${functions.join(", ")}`);
-				serverFunctions.set(moduleName, { functions, id });
+				serverFunctions.set(moduleName, {functions, id});
 
-				// TODO: extract this to a separate function
 				if (process.env.NODE_ENV !== "production") {
 					functions.forEach((functionName) => {
 						const endpoint = `/api/${moduleName}/${functionName}`;
@@ -48,55 +46,101 @@ export default function viteServerFunctionsPlugin() {
 								res.json(result || "* No response *");
 							} catch (error) {
 								console.error(`Error in ${functionName}: ${error.message}`);
-								res.status(500).json({ error: error.message });
+								res.status(500).json({error: error.message});
 							}
 						});
 					});
-				}
 
+				}
 				return generateClientProxy(moduleName, functions);
 			}
 		},
 
-		buildStart() {
-			serverFunctions.forEach(({ id }, moduleName) => {
-				const chunkRefId = this.emitFile({
-					type: "chunk",
-					id,
-					name: `${moduleName}.server`,
-				});
-				chunks.set(moduleName, chunkRefId);
-			});
-		},
-
 		async generateBundle(options, bundle) {
-			let serverCode = `
+			// Create a virtual entry point for all server functions
+			const virtualEntryId = 'virtual:server-actions-entry';
+			let virtualModuleContent = '';
+			for (const [moduleName, {id}] of serverFunctions) {
+				virtualModuleContent += `import * as ${moduleName} from '${id}';\n`;
+			}
+			virtualModuleContent += `export { ${Array.from(serverFunctions.keys()).join(', ')} };`;
+
+			// Use Rollup to bundle the virtual module
+			const build = await rollup({
+				input: virtualEntryId,
+				plugins: [
+					{
+						name: 'virtual',
+						resolveId(id) {
+							if (id === virtualEntryId) {
+								return id;
+							}
+						},
+						load(id) {
+							if (id === virtualEntryId) {
+								return virtualModuleContent;
+							}
+						}
+					},
+					{
+						name: 'external-modules',
+						resolveId(source) {
+							if (!source.endsWith('.server.js') && !source.startsWith('.') && !path.isAbsolute(source)) {
+								return {id: source, external: true};
+							}
+						}
+					}
+				]
+			});
+
+			const {output} = await build.generate({format: 'es'});
+
+			if (output.length === 0) {
+				throw new Error('Failed to bundle server functions');
+			}
+
+			// Get the bundled code
+			const bundledCode = output[0].code;
+
+			// Emit the bundled server functions
+			this.emitFile({
+				type: 'asset',
+				fileName: 'actions.js',
+				source: bundledCode
+			});
+
+			// Generate server.js
+			const serverCode = `
         import express from 'express';
+        import * as serverActions from './actions.js';
+
         const app = express();
+
+        // Middleware
+        // --------------------------------------------------
         app.use(express.json());
-      `;
+        app.use(express.static('dist'));
 
-			// TODO: generate imports for server functions
-			serverCode += "\n// TODO: generate imports for server functions here\n";
-
-			serverFunctions.forEach(({ functions }, moduleName) => {
-				functions.forEach((functionName) => {
-					serverCode += `
+				// Server functions
+				// --------------------------------------------------
+        ${Array.from(serverFunctions.entries()).flatMap(([moduleName, {functions}]) =>
+				functions.map((functionName) => `
             app.post('/api/${moduleName}/${functionName}', async (req, res) => {
               try {
-                const result = await ${moduleName}Module.${functionName}(...req.body);
-                res.json(result);
+                const result = await serverActions.${moduleName}.${functionName}(...req.body);
+                res.json(result || "* No response *");
               } catch (error) {
+                console.error(\`Error in ${functionName}: \${error.message}\`);
                 res.status(500).json({ error: error.message });
               }
             });
-          `;
-				});
-			});
+          `).join('\n')
+			).join('\n')}
 
-			serverCode += `
+				// Start server
+				// --------------------------------------------------
         const port = process.env.PORT || 3000;
-        app.listen(port, () => console.log(\`Server listening on port \${port}\`));
+        app.listen(port, () => console.log(\`Server listening: http://localhost:\${port}\`));
       `;
 
 			this.emitFile({
@@ -105,9 +149,9 @@ export default function viteServerFunctionsPlugin() {
 				source: serverCode,
 			});
 
-			// Generate client proxy
+			// Generate client.js
 			const clientProxy = Array.from(serverFunctions.entries())
-				.map(([moduleName, { functions }]) => generateClientProxy(moduleName, functions))
+				.map(([moduleName, {functions}]) => generateClientProxy(moduleName, functions))
 				.join("\n");
 
 			this.emitFile({
@@ -121,24 +165,21 @@ export default function viteServerFunctionsPlugin() {
 
 function generateClientProxy(moduleName, functions) {
 	let clientProxy = `\n// vite-server-actions client proxy for ${moduleName} module`;
-	// TODO: Improve this
 	functions.forEach((functionName) => {
 		clientProxy += `
-            export async function ${functionName}(...args) {
-              const response = await fetch('/api/${moduleName}/${functionName}', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(args)
-              });
-              if (!response.ok) {
-                throw new Error('Server request failed');
-              }
-              console.log('✅  Server request successful for ${functionName}');
-              return response.json();
-            }
-
-          `;
+      export async function ${functionName}(...args) {
+        const response = await fetch('/api/${moduleName}/${functionName}', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(args)
+        });
+        if (!response.ok) {
+          throw new Error('Server request failed');
+        }
+        console.log('✅  Server request successful for ${functionName}');
+        return response.json();
+      }
+    `;
 	});
-
 	return clientProxy;
 }
