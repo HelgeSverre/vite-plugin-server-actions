@@ -1,6 +1,6 @@
 {
   "name": "vite-plugin-server-actions",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Automatically proxy imported backend functions to a server endpoint in Vite",
   "keywords": [
     "vite-plugin",
