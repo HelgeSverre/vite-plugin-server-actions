@@ -32,13 +32,11 @@ yarn add vite-plugin-server-actions
 2. Add to your `vite.config.js`:
 
 ```javascript
-import {defineConfig} from "vite";
+import { defineConfig } from "vite";
 import serverActions from "helgesverre/vite-plugin-server-actions";
 
 export default defineConfig({
-	plugins: [
-		serverActions(),
-	],
+  plugins: [serverActions()],
 });
 ```
 
@@ -52,22 +50,22 @@ import path from "path";
 const TODO_FILE_PATH = path.join(process.cwd(), "list-of-todos.json");
 
 export async function deleteTodoById(id) {
-	const data = fs.readFileSync(TODO_FILE_PATH, "utf-8");
-	const todos = JSON.parse(data);
-	const newTodos = todos.filter((todo) => todo.id !== id);
-	fs.writeFileSync(TODO_FILE_PATH, JSON.stringify(newTodos, null, 2));
+  const data = fs.readFileSync(TODO_FILE_PATH, "utf-8");
+  const todos = JSON.parse(data);
+  const newTodos = todos.filter((todo) => todo.id !== id);
+  fs.writeFileSync(TODO_FILE_PATH, JSON.stringify(newTodos, null, 2));
 }
 
 export async function saveTodoToJsonFile(todo) {
-	const data = fs.readFileSync(TODO_FILE_PATH, "utf-8");
-	const todos = JSON.parse(data);
-	todos.push(todo);
-	fs.writeFileSync(TODO_FILE_PATH, JSON.stringify(todos, null, 2));
+  const data = fs.readFileSync(TODO_FILE_PATH, "utf-8");
+  const todos = JSON.parse(data);
+  todos.push(todo);
+  fs.writeFileSync(TODO_FILE_PATH, JSON.stringify(todos, null, 2));
 }
 
 export async function listTodos() {
-	const data = fs.readFileSync(TODO_FILE_PATH, "utf-8");
-	return JSON.parse(data);
+  const data = fs.readFileSync(TODO_FILE_PATH, "utf-8");
+  return JSON.parse(data);
 }
 ```
 
@@ -76,43 +74,41 @@ export async function listTodos() {
 ```html
 <!-- ex: src/App.svelte -->
 <script>
-	import {deleteTodoById, listTodos, saveTodoToJsonFile} from './actions/todo.server.js';
+  import { deleteTodoById, listTodos, saveTodoToJsonFile } from "./actions/todo.server.js";
 
-	let todos = [];
-	let newTodoText = '';
+  let todos = [];
+  let newTodoText = "";
 
-	async function fetchTodos() {
-		todos = await listTodos();
-	}
+  async function fetchTodos() {
+    todos = await listTodos();
+  }
 
-	async function addTodo() {
-		await saveTodoToJsonFile({id: Math.random(), text: newTodoText});
-		newTodoText = '';
-		await fetchTodos();
-	}
+  async function addTodo() {
+    await saveTodoToJsonFile({ id: Math.random(), text: newTodoText });
+    newTodoText = "";
+    await fetchTodos();
+  }
 
-	async function removeTodo(id) {
-		await deleteTodoById(id);
-		await fetchTodos();
-	}
+  async function removeTodo(id) {
+    await deleteTodoById(id);
+    await fetchTodos();
+  }
 
-	fetchTodos();
+  fetchTodos();
 </script>
 
 <div>
-	<h1>Todos</h1>
-	<ul>
-		{#each todos as todo}
-		<li>
-			{todo.text}
-			<button on:click={() => removeTodo(todo.id)}>
-				Remove
-			</button>
-		</li>
-		{/each}
-	</ul>
-	<input type="text" bind:value={newTodoText} />
-	<button on:click={addTodo}>Add Todo</button>
+  <h1>Todos</h1>
+  <ul>
+    {#each todos as todo}
+    <li>
+      {todo.text}
+      <button on:click="{()" ="">removeTodo(todo.id)}> Remove</button>
+    </li>
+    {/each}
+  </ul>
+  <input type="text" bind:value="{newTodoText}" />
+  <button on:click="{addTodo}">Add Todo</button>
 </div>
 ```
 
@@ -157,7 +153,7 @@ Vite Server Actions works out of the box, but you can customize it:
 
 ```javascript
 serverActions({
-	// Options (coming soon)
+  // Options (coming soon)
 });
 ```
 
@@ -166,7 +162,7 @@ serverActions({
 TODO: Add configuration options and descriptions
 
 | Option           | Type                                   | Default     | Description                      |
-|------------------|----------------------------------------|-------------|----------------------------------|
+| ---------------- | -------------------------------------- | ----------- | -------------------------------- |
 | logLevel         | 'error' \| 'warn' \| 'info' \| 'debug' | 'info'      | Server log level                 |
 | serverPath       | string                                 | '/api'      | Base path for server endpoints   |
 | serverPort       | number                                 | 3000        | Port for the server              |
@@ -181,5 +177,3 @@ check [issues page](https://github.com/helgesverre/vite-plugin-server-actions/is
 ## 📝 License
 
 This project is [MIT](https://opensource.org/licenses/MIT) licensed.
-
-
