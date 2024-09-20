@@ -2,7 +2,6 @@
 
 [![npm version](https://img.shields.io/npm/v/vite-plugin-server-actions.svg?style=flat)](https://www.npmjs.com/package/vite-plugin-server-actions)
 [![Downloads](https://img.shields.io/npm/dm/vite-plugin-server-actions.svg?style=flat)](https://www.npmjs.com/package/vite-plugin-server-actions)
-[![Build Status](https://img.shields.io/github/workflow/status/HelgeSverre/vite-plugin-server-actions/CI)](https://github.com/HelgeSverre/vite-plugin-server-actions/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 > 🚧 **Experimental:** This is currently a proof of concept. Use at your own risk.
@@ -33,7 +32,7 @@ yarn add vite-plugin-server-actions
 
 ```javascript
 // vite.config.js
-import {defineConfig} from "vite";
+import { defineConfig } from "vite";
 
 // Import the plugin
 import serverActions from "vite-plugin-server-actions";
