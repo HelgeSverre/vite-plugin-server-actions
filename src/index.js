@@ -1,9 +1,9 @@
 import fs from "fs/promises";
 import path from "path";
 import express from "express";
-import {rollup} from 'rollup';
+import { rollup } from "rollup";
 
-export default function viteServerFunctionsPlugin() {
+export default function serverActions() {
 	const serverFunctions = new Map();
 	let app;
 
@@ -34,7 +34,7 @@ export default function viteServerFunctionsPlugin() {
 					functions.push(match[2]);
 				}
 
-				serverFunctions.set(moduleName, {functions, id});
+				serverFunctions.set(moduleName, { functions, id });
 
 				if (process.env.NODE_ENV !== "production") {
 					functions.forEach((functionName) => {
@@ -46,11 +46,10 @@ export default function viteServerFunctionsPlugin() {
 								res.json(result || "* No response *");
 							} catch (error) {
 								console.error(`Error in ${functionName}: ${error.message}`);
-								res.status(500).json({error: error.message});
+								res.status(500).json({ error: error.message });
 							}
 						});
 					});
-
 				}
 				return generateClientProxy(moduleName, functions);
 			}
@@ -58,19 +57,19 @@ export default function viteServerFunctionsPlugin() {
 
 		async generateBundle(options, bundle) {
 			// Create a virtual entry point for all server functions
-			const virtualEntryId = 'virtual:server-actions-entry';
-			let virtualModuleContent = '';
-			for (const [moduleName, {id}] of serverFunctions) {
+			const virtualEntryId = "virtual:server-actions-entry";
+			let virtualModuleContent = "";
+			for (const [moduleName, { id }] of serverFunctions) {
 				virtualModuleContent += `import * as ${moduleName} from '${id}';\n`;
 			}
-			virtualModuleContent += `export { ${Array.from(serverFunctions.keys()).join(', ')} };`;
+			virtualModuleContent += `export { ${Array.from(serverFunctions.keys()).join(", ")} };`;
 
 			// Use Rollup to bundle the virtual module
 			const build = await rollup({
 				input: virtualEntryId,
 				plugins: [
 					{
-						name: 'virtual',
+						name: "virtual",
 						resolveId(id) {
 							if (id === virtualEntryId) {
 								return id;
@@ -80,23 +79,23 @@ export default function viteServerFunctionsPlugin() {
 							if (id === virtualEntryId) {
 								return virtualModuleContent;
 							}
-						}
+						},
 					},
 					{
-						name: 'external-modules',
+						name: "external-modules",
 						resolveId(source) {
-							if (!source.endsWith('.server.js') && !source.startsWith('.') && !path.isAbsolute(source)) {
-								return {id: source, external: true};
+							if (!source.endsWith(".server.js") && !source.startsWith(".") && !path.isAbsolute(source)) {
+								return { id: source, external: true };
 							}
-						}
-					}
-				]
+						},
+					},
+				],
 			});
 
-			const {output} = await build.generate({format: 'es'});
+			const { output } = await build.generate({ format: "es" });
 
 			if (output.length === 0) {
-				throw new Error('Failed to bundle server functions');
+				throw new Error("Failed to bundle server functions");
 			}
 
 			// Get the bundled code
@@ -104,13 +103,13 @@ export default function viteServerFunctionsPlugin() {
 
 			// Emit the bundled server functions
 			this.emitFile({
-				type: 'asset',
-				fileName: 'actions.js',
-				source: bundledCode
+				type: "asset",
+				fileName: "actions.js",
+				source: bundledCode,
 			});
 
 			// Generate server.js
-			const serverCode = `
+			let serverCode = `
         import express from 'express';
         import * as serverActions from './actions.js';
 
@@ -123,8 +122,11 @@ export default function viteServerFunctionsPlugin() {
 
 				// Server functions
 				// --------------------------------------------------
-        ${Array.from(serverFunctions.entries()).flatMap(([moduleName, {functions}]) =>
-				functions.map((functionName) => `
+        ${Array.from(serverFunctions.entries())
+					.flatMap(([moduleName, { functions }]) =>
+						functions
+							.map(
+								(functionName) => `
             app.post('/api/${moduleName}/${functionName}', async (req, res) => {
               try {
                 const result = await serverActions.${moduleName}.${functionName}(...req.body);
@@ -134,49 +136,53 @@ export default function viteServerFunctionsPlugin() {
                 res.status(500).json({ error: error.message });
               }
             });
-          `).join('\n')
-			).join('\n')}
+          `,
+							)
+							.join("\n")
+							.trim(),
+					)
+					.join("\n")
+					.trim()}
 
 				// Start server
 				// --------------------------------------------------
         const port = process.env.PORT || 3000;
-        app.listen(port, () => console.log(\`Server listening: http://localhost:\${port}\`));
+        app.listen(port, () => console.log(\`🚀 Server listening: http://localhost:\${port}\`));
+
+        // List all server functions
+				// --------------------------------------------------
       `;
+
+			// TODO: Add a way to list all server functions in the console
 
 			this.emitFile({
 				type: "asset",
 				fileName: "server.js",
 				source: serverCode,
 			});
-
-			// Generate client.js
-			const clientProxy = Array.from(serverFunctions.entries())
-				.map(([moduleName, {functions}]) => generateClientProxy(moduleName, functions))
-				.join("\n");
-
-			this.emitFile({
-				type: "asset",
-				fileName: "client.js",
-				source: clientProxy,
-			});
 		},
 	};
 }
 
 function generateClientProxy(moduleName, functions) {
-	let clientProxy = `\n// vite-server-actions client proxy for ${moduleName} module`;
+	let clientProxy = `\n// vite-server-actions: ${moduleName}\n`;
 	functions.forEach((functionName) => {
 		clientProxy += `
       export async function ${functionName}(...args) {
+      	console.log("[Vite Server Actions] 🚀 - Executing ${functionName}");
         const response = await fetch('/api/${moduleName}/${functionName}', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(args)
         });
+
         if (!response.ok) {
+        	console.log("[Vite Server Actions] ❗ - Error in ${functionName}");
           throw new Error('Server request failed');
         }
-        console.log('✅  Server request successful for ${functionName}');
+
+        console.log("[Vite Server Actions] ✅ - ${functionName} executed successfully");
+
         return response.json();
       }
     `;

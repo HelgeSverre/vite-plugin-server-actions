@@ -1,15 +1,21 @@
-# TODO App example using Vite Server Actions
+#  Vite Server Actions - TODO App Example
 
-This is an example of a simple TODO app using Vite Server Actions and Svelte.
+This is an example of a simple TODO application that
+uses [Vite Server Actions](https://github.com/HelgeSverre/vite-plugin-server-actions)
+and [Svelte](https://svelte.dev/) to demonstrate a real-world use case of how to use the plugin.
 
-It demonstrates how to use Vite Server Actions to create a simple TODO app where the user can add, remove, and mark
-tasks as completed, where all CRUD actions are handled by the server action and stored in a json file, this allows us to
-use node features like accessing the file system and storing data in a file without having to setup a separate server or
-API.
+## 🚀 Quick Start
 
-## Running the example
+## Running in development mode
+
+```shell
+npm install
+npm run dev
+```
+
+## Building and running in production mode
 
 ```bash
 npm install
-npm run dev
+npm run  build && node dist/server.js
 ```
