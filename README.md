@@ -5,7 +5,8 @@
 [![Build Status](https://img.shields.io/github/workflow/status/HelgeSverre/vite-plugin-server-actions/CI)](https://github.com/HelgeSverre/vite-plugin-server-actions/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-> 🚧 **Experimental:** This is a proof of concept and should not be used in production.
+> 🚧 **Experimental:** This is currently a proof of concept. Use at your own risk.
+
 
 **Vite Server Actions** is a Vite plugin that makes it easy to create functions (actions) that runs on the server, while
 allowing you to call them from the client-side as if they were local functions.
@@ -32,7 +33,7 @@ yarn add vite-plugin-server-actions
 2. Add to your `vite.config.js`:
 
 ```javascript
-import { defineConfig } from "vite";
+import {defineConfig} from "vite";
 import serverActions from "helgesverre/vite-plugin-server-actions";
 
 export default defineConfig({
@@ -126,25 +127,25 @@ bundled into a single file that can be run with Node.js.
 
 ```mermaid
 sequenceDiagram
-	participant Client
-	participant Vite Dev Server
-	participant Plugin Middleware
-	participant Server Function
-	participant File System
-	Client ->> Vite Dev Server: import { addTodo } from './server/todos.server.js'
-	Vite Dev Server ->> Client: Returns proxied function
-	Client ->> Client: Call addTodo({ text: 'New todo' })
-	Client ->> Vite Dev Server: POST /api/todos/addTodo
-	Vite Dev Server ->> Plugin Middleware: Handle POST request
-	Plugin Middleware ->> Server Function: Call addTodo function
-	Server Function ->> File System: Read todos.json
-	File System ->> Server Function: Return current todos
-	Server Function ->> Server Function: Add new todo
-	Server Function ->> File System: Write updated todos.json
-	File System ->> Server Function: Write confirmation
-	Server Function ->> Plugin Middleware: Return new todo
-	Plugin Middleware ->> Vite Dev Server: Send JSON response
-	Vite Dev Server ->> Client: Return new todo data
+  participant Client
+  participant Vite Dev Server
+  participant Plugin Middleware
+  participant Server Function
+  participant File System
+  Client ->> Vite Dev Server: import { addTodo } from './server/todos.server.js'
+  Vite Dev Server ->> Client: Returns proxied function
+  Client ->> Client: Call addTodo({ text: 'New todo' })
+  Client ->> Vite Dev Server: POST /api/todos/addTodo
+  Vite Dev Server ->> Plugin Middleware: Handle POST request
+  Plugin Middleware ->> Server Function: Call addTodo function
+  Server Function ->> File System: Read todos.json
+  File System ->> Server Function: Return current todos
+  Server Function ->> Server Function: Add new todo
+  Server Function ->> File System: Write updated todos.json
+  File System ->> Server Function: Write confirmation
+  Server Function ->> Plugin Middleware: Return new todo
+  Plugin Middleware ->> Vite Dev Server: Send JSON response
+  Vite Dev Server ->> Client: Return new todo data
 ```
 
 ## 🔧 Configuration
@@ -162,12 +163,24 @@ serverActions({
 TODO: Add configuration options and descriptions
 
 | Option           | Type                                   | Default     | Description                      |
-| ---------------- | -------------------------------------- | ----------- | -------------------------------- |
+|------------------|----------------------------------------|-------------|----------------------------------|
 | logLevel         | 'error' \| 'warn' \| 'info' \| 'debug' | 'info'      | Server log level                 |
 | serverPath       | string                                 | '/api'      | Base path for server endpoints   |
 | serverPort       | number                                 | 3000        | Port for the server              |
 | serverHost       | string                                 | 'localhost' | Host for the server              |
 | serverMiddleware | (app: Express) => void                 | -           | Custom middleware for the server |
+
+## TODO
+
+This is a proof of concept, and things are still missing, such as:
+
+- [ ] Add configuration options
+- [ ] Add tests
+- [ ] Allow customizing the HTTP method for each action (e.g. `GET`, `POST`, `PUT`, `DELETE`)
+- [ ] Make sure name collisions are handled correctly
+- [ ] Make sure the actions are only available on the server when running in production mode.
+- [ ] Add more examples (Vue, React, etc.)
+- [ ] Publish to npm
 
 ## 🤝 Contributing
 

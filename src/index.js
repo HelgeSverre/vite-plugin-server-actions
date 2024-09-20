@@ -1,6 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import express from "express";
+// TODO: find a way to not use rollup directly
 import { rollup } from "rollup";
 
 export default function serverActions() {

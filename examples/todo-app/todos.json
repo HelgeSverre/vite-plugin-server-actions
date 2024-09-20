@@ -1,42 +1,27 @@
 [
 	{
-		"id": 1726802630575,
-		"text": "new todo",
-		"completed": true
-	},
-	{
-		"id": 1726806390358,
-		"text": "testing lanana",
-		"completed": true
-	},
-	{
-		"id": 1726811443208,
-		"text": "test",
-		"completed": true
-	},
-	{
-		"id": 1726817013493,
-		"text": "test",
-		"completed": true
-	},
-	{
-		"id": 1726817034989,
-		"text": "test",
+		"id": 1,
+		"text": "Finish writing documentation",
 		"completed": false
 	},
 	{
-		"id": 1726817383020,
-		"text": "nanana",
+		"id": 2,
+		"text": "Implement authentication logic",
 		"completed": true
 	},
 	{
-		"id": 1726817384236,
-		"text": "batman",
+		"id": 3,
+		"text": "Design user interface",
 		"completed": false
 	},
 	{
-		"id": 1726817391465,
-		"text": "batattmaannn",
+		"id": 4,
+		"text": "Test server actions",
+		"completed": true
+	},
+	{
+		"id": 5,
+		"text": "Deploy application",
 		"completed": false
 	}
 ]

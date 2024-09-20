@@ -1,7 +1,7 @@
 <script>
 	import { onMount } from "svelte";
-	import { addTodo, deleteTodo, getTodos, updateTodo } from "./todo.server.js";
-	import { login } from "./auth.server.js";
+	import { addTodo, deleteTodo, getTodos, updateTodo } from "./actions/todo.server.js";
+	import { login } from "./actions/auth.server.js";
 
 	let todos = [];
 	let newTodoText = "";
@@ -17,11 +17,11 @@
 	}
 
 	async function handleAddTodo() {
-		if (newTodoText.trim()) {
-			const newTodo = await addTodo({ text: newTodoText });
-			todos = [...todos, newTodo];
-			newTodoText = "";
-		}
+		if (!newTodoText.trim()) return;
+
+		await addTodo({ text: newTodoText });
+		await loadTodos();
+		newTodoText = "";
 	}
 
 	async function handleToggleTodo(id) {
