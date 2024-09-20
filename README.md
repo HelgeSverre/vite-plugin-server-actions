@@ -1,4 +1,4 @@
-# 🚀 Vite Server Actions
+# ⚡ Vite Server Actions
 
 [![npm version](https://img.shields.io/npm/v/vite-plugin-server-actions.svg?style=flat)](https://www.npmjs.com/package/vite-plugin-server-actions)
 [![Downloads](https://img.shields.io/npm/dm/vite-plugin-server-actions.svg?style=flat)](https://www.npmjs.com/package/vite-plugin-server-actions)
@@ -7,8 +7,8 @@
 
 > 🚧 **Experimental:** This is currently a proof of concept. Use at your own risk.
 
-**Vite Server Actions** is a Vite plugin that makes it easy to create functions (actions) that runs on the server, while
-allowing you to call them from the client-side as if they were local functions.
+**Vite Server Actions** is a Vite plugin that enables you to create server-side functions and call them from your
+client-side code as if they were local functions.
 
 ## ✨ Features
 
@@ -25,22 +25,25 @@ allowing you to call them from the client-side as if they were local functions.
 # Install using npm
 npm install vite-plugin-server-actions
 
-# Install using yarn
+# Or using yarn
 yarn add vite-plugin-server-actions
 ```
 
-2. Add to your `vite.config.js`:
+2. Add to your `vite.config.js` file ([example](examples/todo-app/vite.config.js)):
 
 ```javascript
+// vite.config.js
 import { defineConfig } from "vite";
-import serverActions from "helgesverre/vite-plugin-server-actions";
+import serverActions from "vite-plugin-server-actions";
 
 export default defineConfig({
   plugins: [serverActions()],
 });
 ```
 
-3. Create a `[whatever].server.js` file anywhere in your project:
+2. Create a server action file (e.g., `todo.server.js`):
+
+You can put it anywhere in your project, but it has to end with `.server.js`.
 
 ```javascript
 // ex: src/actions/todo.server.js
@@ -87,12 +90,12 @@ export async function listTodos() {
     await saveTodoToJsonFile({ id: Math.random(), text: newTodoText });
     newTodoText = "";
     await fetchTodos();
-  }
+}
 
   async function removeTodo(id) {
     await deleteTodoById(id);
     await fetchTodos();
-  }
+}
 
   fetchTodos();
 </script>
@@ -112,44 +115,20 @@ export async function listTodos() {
 </div>
 ```
 
-## 🤯 How it works
+That's it! Your server actions are now ready to use. 🎉
 
-Vite Server Actions works by creating an API endpoint for each server function you define.
+## 📚 How it works
 
-When you import a server action in your client-side code, Vite Server Actions will intercept the import and return a
-proxy function that sends a request to the server endpoint instead of executing the function locally.
+**Vite Server Actions** creates an API endpoint for each server function you define. When you import a server action in
+your client-side code, it returns a proxy function) that sends a request to the server endpoint instead of executing the
+function locally.
 
-In development mode, the server is run as a middleware in the Vite dev server, while in production mode, the server is
-bundled into a single file that can be run with Node.js.
-
-### Sequence Diagram
-
-```mermaid
-sequenceDiagram
-  participant Client
-  participant Vite Dev Server
-  participant Plugin Middleware
-  participant Server Function
-  participant File System
-  Client ->> Vite Dev Server: import { addTodo } from './server/todos.server.js'
-  Vite Dev Server ->> Client: Returns proxied function
-  Client ->> Client: Call addTodo({ text: 'New todo' })
-  Client ->> Vite Dev Server: POST /api/todos/addTodo
-  Vite Dev Server ->> Plugin Middleware: Handle POST request
-  Plugin Middleware ->> Server Function: Call addTodo function
-  Server Function ->> File System: Read todos.json
-  File System ->> Server Function: Return current todos
-  Server Function ->> Server Function: Add new todo
-  Server Function ->> File System: Write updated todos.json
-  File System ->> Server Function: Write confirmation
-  Server Function ->> Plugin Middleware: Return new todo
-  Plugin Middleware ->> Vite Dev Server: Send JSON response
-  Vite Dev Server ->> Client: Return new todo data
-```
+In _development_, the server actions run as a middleware in the Vite dev server.
+While in _production_, it's bundled into a single file that can be run with Node.js.
 
 ## 🔧 Configuration
 
-Vite Server Actions works out of the box, but you can customize it:
+Vite Server Actions works out of the box, but you can customize it by passing options to the plugin:
 
 ```javascript
 serverActions({
@@ -159,15 +138,7 @@ serverActions({
 
 ## 🛠️ Configuration Options
 
-TODO: Add configuration options and descriptions
-
-| Option           | Type                                   | Default     | Description                      |
-| ---------------- | -------------------------------------- | ----------- | -------------------------------- |
-| logLevel         | 'error' \| 'warn' \| 'info' \| 'debug' | 'info'      | Server log level                 |
-| serverPath       | string                                 | '/api'      | Base path for server endpoints   |
-| serverPort       | number                                 | 3000        | Port for the server              |
-| serverHost       | string                                 | 'localhost' | Host for the server              |
-| serverMiddleware | (app: Express) => void                 | -           | Custom middleware for the server |
+Coming soon...
 
 ## TODO
 
