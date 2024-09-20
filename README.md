@@ -33,7 +33,7 @@ yarn add vite-plugin-server-actions
 
 ```javascript
 // vite.config.js
-import { defineConfig } from "vite";
+import {defineConfig} from "vite";
 import serverActions from "vite-plugin-server-actions";
 
 export default defineConfig({
@@ -116,6 +116,12 @@ export async function listTodos() {
 ```
 
 That's it! Your server actions are now ready to use. 🎉
+
+## 📝 Examples
+
+To see a real-world example of how to use Vite Server Actions, check out the TODO app example:
+
+- [TODO App Example](examples/todo-app/README.md)
 
 ## 📚 How it works
 
