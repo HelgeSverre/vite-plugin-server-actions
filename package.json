@@ -1,6 +1,6 @@
 {
   "name": "vite-plugin-server-actions",
-  "description": "Seamlessly integrate server-side functions into your Vite projects with automatic API endpoints and client-side proxies.",
+  "description": "Automatically proxy imported backend functions to a server endpoint in Vite",
   "version": "0.1.0",
   "type": "module",
   "keywords": [

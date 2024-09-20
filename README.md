@@ -25,14 +25,12 @@ npm install vite-plugin-server-actions
 2. Add to your `vite.config.js`:
 
 ```javascript
-import {defineConfig} from 'vite'
-import serverActions from 'helgesverre/vite-plugin-server-actions'
+import { defineConfig } from "vite";
+import serverActions from "helgesverre/vite-plugin-server-actions";
 
 export default defineConfig({
-	plugins: [
-		serverActions(),
-	]
-})
+	plugins: [serverActions()],
+});
 ```
 
 3. Create a `.server.js` file with your server functions:
@@ -40,16 +38,16 @@ export default defineConfig({
 ```javascript
 // api.server.js
 export async function getData() {
-	return {message: 'Hello from the server! 👋'}
+	return { message: "Hello from the server! 👋" };
 }
 ```
 
 4. Use in your client code:
 
 ```javascript
-import {getData} from './api.server.js'
+import { getData } from "./api.server.js";
 
-getData().then(data => console.log(data))
+getData().then((data) => console.log(data));
 ```
 
 ## 🛠 Usage
@@ -62,12 +60,15 @@ Create functions in `.server.js` files:
 // users.server.js
 export async function getUsers() {
 	// Fetch users from database
-	return [{id: 1, name: 'Alice'}, {id: 2, name: 'Bob'}]
+	return [
+		{ id: 1, name: "Alice" },
+		{ id: 2, name: "Bob" },
+	];
 }
 
 export async function createUser(userData) {
 	// Create a new user
-	return {id: 3, ...userData}
+	return { id: 3, ...userData };
 }
 ```
 
@@ -76,13 +77,13 @@ export async function createUser(userData) {
 Import and use as if they were local functions:
 
 ```javascript
-import {getUsers, createUser} from './users.server.js'
+import { getUsers, createUser } from "./users.server.js";
 
 // Get users
-const users = await getUsers()
+const users = await getUsers();
 
 // Create a new user
-const newUser = await createUser({name: 'Charlie'})
+const newUser = await createUser({ name: "Charlie" });
 ```
 
 ## 🔧 Configuration
@@ -92,13 +93,13 @@ Vite Server Actions works out of the box, but you can customize it:
 ```javascript
 serverActions({
 	// Options (coming soon)
-})
+});
 ```
 
 ## Configuration options:
 
 | Option             | Type                                   | Default          | Description                                |
-|--------------------|----------------------------------------|------------------|--------------------------------------------|
+| ------------------ | -------------------------------------- | ---------------- | ------------------------------------------ |
 | serverFunctionsDir | string                                 | 'src/server'     | Directory containing server function files |
 | serverOutputFile   | string                                 | 'dist/server.js' | Output file for generated server           |
 | cors               | boolean                                | false            | Enable CORS for all routes                 |

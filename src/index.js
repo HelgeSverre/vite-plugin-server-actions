@@ -1,121 +1,86 @@
-import fs from 'fs/promises';
-import path from 'path';
-import express from 'express';
+import fs from "fs/promises";
+import path from "path";
+import express from "express";
 
 export default function viteServerFunctionsPlugin() {
 	const serverFunctions = new Map();
 	let app;
-	let logger;
+	const chunks = new Map();
 
 	return {
-		name: 'vite-plugin-server-actions',
+		name: "vite-plugin-server-actions",
 
 		configureServer(server) {
-			logger = server.config.logger;
-			// logger.info('🔧 Configuring vite-plugin-server-actions');
 			app = express();
-			app.use(express.json()); // Add this line to parse JSON bodies
+			app.use(express.json());
 			server.middlewares.use(app);
-			// logger.info('✅  Express middleware registered with Vite server');
 		},
 
 		async resolveId(source, importer) {
-			if (source.endsWith('.server.js') && importer) {
-				// logger.info(`🔍 Resolving server file: ${source} imported in ${importer}`);
+			if (source.endsWith(".server.js") && importer) {
 				return source;
 			}
 		},
 
 		async load(id) {
-			if (id.endsWith('.server.js')) {
-				// logger.info(`📂 Loading server file: ${id}`);
-				const moduleName = path.basename(id, '.server.js');
+			if (id.endsWith(".server.js")) {
+				const moduleName = path.basename(id, ".server.js");
+				const code = await fs.readFile(id, "utf-8");
 
-				// logger.info(`📄 Reading content of ${id}`);
-				const code = await fs.readFile(id, 'utf-8');
-
-				// logger.info(`🔎 Extracting exported functions from ${moduleName}`);
 				const exportRegex = /export\s+(async\s+)?function\s+(\w+)/g;
 				const functions = [];
 				let match;
 				while ((match = exportRegex.exec(code)) !== null) {
 					functions.push(match[2]);
 				}
-				// logger.info(`📊 Found ${functions.length} exported functions in ${moduleName}: ${functions.join(', ')}`);
 
-				// Store the functions for this module
-				serverFunctions.set(moduleName, functions);
+				console.log(`Found server functions for ${moduleName}: ${functions.join(", ")}`);
+				serverFunctions.set(moduleName, { functions, id });
 
-				// logger.info(`🛠 Creating API endpoints for ${moduleName}`);
-				if (process.env.NODE_ENV !== 'production') {
-					functions.forEach(functionName => {
+				// TODO: extract this to a separate function
+				if (process.env.NODE_ENV !== "production") {
+					functions.forEach((functionName) => {
 						const endpoint = `/api/${moduleName}/${functionName}`;
-						// logger.info(`🔗 Creating endpoint: ${endpoint}`);
-						const pad = " ".repeat(4);
-
-
 						app.post(endpoint, async (req, res) => {
-							// logger.info(pad + `→ Received request at ${endpoint}`);
 							try {
 								const module = await import(id);
-								// logger.info(pad + `✨ Executing ${functionName} in ${moduleName}`);
 								const result = await module[functionName](...req.body);
-								// logger.info(pad + `✅ Successfully executed ${functionName}`);
 								res.json(result || "* No response *");
 							} catch (error) {
-								logger.error(pad + `❌ Error in ${functionName}: ${error.message}`);
-								res.status(500).json({error: error.message});
+								console.error(`Error in ${functionName}: ${error.message}`);
+								res.status(500).json({ error: error.message });
 							}
 						});
 					});
 				}
 
-				// logger.info(`🔄 Generating client-side proxy for ${moduleName}`);
-				let clientProxy = `
-          // Client-side proxy for ${moduleName}
-        `;
-
-				functions.forEach(functionName => {
-					// logger.info(`📝 Adding proxy function for ${functionName}`);
-					clientProxy += `
-            export async function ${functionName}(...args) {
-              console.log('🚀 Calling server function: ${functionName}');
-              const response = await fetch('/api/${moduleName}/${functionName}', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(args)
-              });
-              if (!response.ok) {
-                console.error('❌ Server request failed for ${functionName}');
-                throw new Error('Server request failed');
-              }
-              console.log('✅  Server request successful for ${functionName}');
-              return response.json();
-            }
-          `;
-				});
-
-				// logger.info(`✅  Generated client-side proxy for ${moduleName}`);
-				return clientProxy;
+				return generateClientProxy(moduleName, functions);
 			}
 		},
 
-		async generateBundle() {
-			// logger.info('📦 Generating production server.js file');
+		buildStart() {
+			serverFunctions.forEach(({ id }, moduleName) => {
+				const chunkRefId = this.emitFile({
+					type: "chunk",
+					id,
+					name: `${moduleName}.server`,
+				});
+				chunks.set(moduleName, chunkRefId);
+			});
+		},
+
+		async generateBundle(options, bundle) {
 			let serverCode = `
         import express from 'express';
         const app = express();
         app.use(express.json());
       `;
 
-			serverFunctions.forEach((functions, moduleName) => {
-				serverCode += `import * as ${moduleName}Module from './${moduleName}.server.js';\n`;
-			});
+			// TODO: generate imports for server functions
+			serverCode += "\n// TODO: generate imports for server functions here\n";
 
-			serverFunctions.forEach((functions, moduleName) => {
-				// logger.info(`📄 Adding endpoints for ${moduleName} to production server`);
-
-				functions.forEach(functionName => {
+			serverFunctions.forEach(({ functions }, moduleName) => {
+				functions.forEach((functionName) => {
 					serverCode += `
             app.post('/api/${moduleName}/${functionName}', async (req, res) => {
               try {
@@ -134,45 +99,46 @@ export default function viteServerFunctionsPlugin() {
         app.listen(port, () => console.log(\`Server listening on port \${port}\`));
       `;
 
-			// logger.info('💾 Writing production server.js file');
 			this.emitFile({
-				type: 'asset',
-				fileName: 'server.js',
-				source: serverCode
+				type: "asset",
+				fileName: "server.js",
+				source: serverCode,
 			});
-			// logger.info('✅  Production server.js file generated');
 
+			// Generate client proxy
+			const clientProxy = Array.from(serverFunctions.entries())
+				.map(([moduleName, { functions }]) => generateClientProxy(moduleName, functions))
+				.join("\n");
 
-			let clientProxy = "";
-			serverFunctions.forEach((functions, moduleName) => {
-				functions.forEach(functionName => {
-					// logger.info(`📝 Adding proxy function for ${functionName}`);
-					clientProxy += `
+			this.emitFile({
+				type: "asset",
+				fileName: "client.js",
+				source: clientProxy,
+			});
+		},
+	};
+}
+
+function generateClientProxy(moduleName, functions) {
+	let clientProxy = `\n// vite-server-actions client proxy for ${moduleName} module`;
+	// TODO: Improve this
+	functions.forEach((functionName) => {
+		clientProxy += `
             export async function ${functionName}(...args) {
-              console.log('🚀 Calling server function: ${functionName}');
               const response = await fetch('/api/${moduleName}/${functionName}', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(args)
               });
               if (!response.ok) {
-                console.error('❌ Server request failed for ${functionName}');
                 throw new Error('Server request failed');
               }
               console.log('✅  Server request successful for ${functionName}');
               return response.json();
             }
+
           `;
-				});
-			});
+	});
 
-			// logger.info(`✅  Generated client-side proxy for ${moduleName}`);
-			this.emitFile({
-				type: 'asset',
-				fileName: 'client.js',
-				source: clientProxy
-			});
-
-		}
-	};
+	return clientProxy;
 }
