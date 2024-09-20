@@ -71,7 +71,7 @@ export async function listTodos() {
 
 4. Import and use your server actions in your client-side code:
 
-```html
+```svelte
 <!-- ex: src/App.svelte -->
 <script>
   import { deleteTodoById, listTodos, saveTodoToJsonFile } from "./actions/todo.server.js";
@@ -103,7 +103,7 @@ export async function listTodos() {
     {#each todos as todo}
     <li>
       {todo.text}
-      <button on:click="{()" ="">removeTodo(todo.id)}> Remove</button>
+      <button on:click="{() => removeTodo(todo.id)}">Remove</button>
     </li>
     {/each}
   </ul>
