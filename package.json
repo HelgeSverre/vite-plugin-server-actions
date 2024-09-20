@@ -18,6 +18,7 @@
   "bugs": {
     "url": "https://github.com/HelgeSverre/vite-plugin-server-actions/issues"
   },
+  "readme": "README.md",
   "author": {
     "name": "Helge Sverre",
     "email": "helge.sverre@gmail.com",
