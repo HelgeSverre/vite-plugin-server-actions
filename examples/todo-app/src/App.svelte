@@ -1,11 +1,13 @@
 <script>
 	import { onMount } from "svelte";
 	import { addTodo, deleteTodo, getTodos, updateTodo } from "./todo.server.js";
+	import { login } from "./auth.server.js";
 
 	let todos = [];
 	let newTodoText = "";
 
 	onMount(() => {
+		login("admin", "admin");
 		loadTodos();
 	});
 
