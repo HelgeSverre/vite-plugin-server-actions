@@ -1,30 +1,31 @@
 {
   "name": "vite-plugin-server-actions",
-  "description": "Automatically proxy imported backend functions to a server endpoint in Vite",
   "version": "0.1.0",
-  "type": "module",
+  "description": "Automatically proxy imported backend functions to a server endpoint in Vite",
   "keywords": [
     "vite-plugin",
     "server",
     "actions"
   ],
-  "license": "MIT",
   "homepage": "https://github.com/HelgeSverre/vite-plugin-server-actions",
+  "bugs": {
+    "url": "https://github.com/HelgeSverre/vite-plugin-server-actions/issues"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/HelgeSverre/vite-plugin-server-actions"
   },
-  "bugs": {
-    "url": "https://github.com/HelgeSverre/vite-plugin-server-actions/issues"
-  },
-  "readme": "README.md",
+  "license": "MIT",
   "author": {
     "name": "Helge Sverre",
     "email": "helge.sverre@gmail.com",
     "url": "https://helgesver.re"
   },
+  "type": "module",
   "main": "src/index.js",
   "scripts": {
+    "example:build": "npm run build --prefix examples/todo-app",
+    "example:dev": "npm run dev --prefix examples/todo-app",
     "format": "npx prettier --write src/ README.md",
     "sort": "npx sort-package-json"
   },
@@ -34,6 +35,7 @@
     "vitest": "^0.34.0"
   },
   "peerDependencies": {
-    "vite": "^2.0.0 || ^3.0.0 || ^4.0.0"
-  }
+    "vite": "^2.0.0 || ^3.0.0 || ^4.0.0 || ^5.0.0"
+  },
+  "readme": "README.md"
 }

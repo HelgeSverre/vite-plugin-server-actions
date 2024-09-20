@@ -7,7 +7,6 @@
 
 > 🚧 **Experimental:** This is currently a proof of concept. Use at your own risk.
 
-
 **Vite Server Actions** is a Vite plugin that makes it easy to create functions (actions) that runs on the server, while
 allowing you to call them from the client-side as if they were local functions.
 
@@ -33,7 +32,7 @@ yarn add vite-plugin-server-actions
 2. Add to your `vite.config.js`:
 
 ```javascript
-import {defineConfig} from "vite";
+import { defineConfig } from "vite";
 import serverActions from "helgesverre/vite-plugin-server-actions";
 
 export default defineConfig({
@@ -163,7 +162,7 @@ serverActions({
 TODO: Add configuration options and descriptions
 
 | Option           | Type                                   | Default     | Description                      |
-|------------------|----------------------------------------|-------------|----------------------------------|
+| ---------------- | -------------------------------------- | ----------- | -------------------------------- |
 | logLevel         | 'error' \| 'warn' \| 'info' \| 'debug' | 'info'      | Server log level                 |
 | serverPath       | string                                 | '/api'      | Base path for server endpoints   |
 | serverPort       | number                                 | 3000        | Port for the server              |
@@ -186,6 +185,24 @@ This is a proof of concept, and things are still missing, such as:
 
 Contributions, issues, and feature requests are welcome! Feel free to
 check [issues page](https://github.com/helgesverre/vite-plugin-server-actions/issues).
+
+## 🧑‍💻 Development setup
+
+```shell
+# Clone the repository
+git clone git@github.com:HelgeSverre/vite-plugin-server-actions.git
+cd vite-plugin-server-actions
+
+# Install dependencies
+npm install
+npm run dev
+
+# Format code
+npm run format
+
+# Lint code
+npm run lint
+```
 
 ## 📝 License
 
