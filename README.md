@@ -73,7 +73,7 @@ export async function listTodos() {
 
 4. Import and use your server actions in your client-side code:
 
-```sveltehtml
+```html
 <!-- ex: src/App.svelte -->
 <script>
 	import {listTodos, saveTodoToJsonFile, deleteTodoById} from './actions/todo.server.js';
