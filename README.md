@@ -29,15 +29,20 @@ npm install vite-plugin-server-actions
 yarn add vite-plugin-server-actions
 ```
 
-2. Add to your `vite.config.js` file ([example](examples/todo-app/vite.config.js)):
+2. Add it to your `vite.config.js` file ([example](examples/todo-app/vite.config.js)):
 
 ```javascript
 // vite.config.js
 import {defineConfig} from "vite";
+
+// Import the plugin
 import serverActions from "vite-plugin-server-actions";
 
 export default defineConfig({
-  plugins: [serverActions()],
+  plugins: [
+    // Add the plugin
+    serverActions(),
+  ],
 });
 ```
 
@@ -158,12 +163,9 @@ This is a proof of concept, and things are still missing, such as:
 - [ ] Add more examples (Vue, React, etc.)
 - [ ] Publish to npm
 
-## 🤝 Contributing
+## 🧑‍💻 Development Setup
 
-Contributions, issues, and feature requests are welcome! Feel free to
-check [issues page](https://github.com/helgesverre/vite-plugin-server-actions/issues).
-
-## 🧑‍💻 Development setup
+To set up the project for development, follow these steps:
 
 ```shell
 # Clone the repository
@@ -176,9 +178,6 @@ npm run dev
 
 # Format code
 npm run format
-
-# Lint code
-npm run lint
 ```
 
 ## 📝 License
