@@ -76,7 +76,7 @@ export async function listTodos() {
 ```html
 <!-- ex: src/App.svelte -->
 <script>
-	import {listTodos, saveTodoToJsonFile, deleteTodoById} from './actions/todo.server.js';
+	import {deleteTodoById, listTodos, saveTodoToJsonFile} from './actions/todo.server.js';
 
 	let todos = [];
 	let newTodoText = '';
@@ -103,10 +103,12 @@ export async function listTodos() {
 	<h1>Todos</h1>
 	<ul>
 		{#each todos as todo}
-			<li>
-				{todo.text}
-				<button on:click={() => removeTodo(todo.id)}>Remove</button>
-			</li>
+		<li>
+			{todo.text}
+			<button on:click={() => removeTodo(todo.id)}>
+				Remove
+			</button>
+		</li>
 		{/each}
 	</ul>
 	<input type="text" bind:value={newTodoText} />
