@@ -5,7 +5,9 @@
 [![Build Status](https://img.shields.io/github/workflow/status/HelgeSverre/vite-plugin-server-actions/CI)](https://github.com/HelgeSverre/vite-plugin-server-actions/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Vite Server Actions is a Vite plugin that makes it easy to create functions (actions) that runs on the server, while
+> 🚧 **Experimental:** This is a proof of concept and should not be used in production.
+
+**Vite Server Actions** is a Vite plugin that makes it easy to create functions (actions) that runs on the server, while
 allowing you to call them from the client-side as if they were local functions.
 
 ## ✨ Features
@@ -177,3 +179,5 @@ check [issues page](https://github.com/helgesverre/vite-plugin-server-actions/is
 ## 📝 License
 
 This project is [MIT](https://opensource.org/licenses/MIT) licensed.
+
+
