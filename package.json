@@ -1,6 +1,6 @@
 {
   "name": "vite-plugin-server-actions",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Server actions for Vite - call backend functions directly from your frontend with automatic API generation, TypeScript support, and zero configuration",
   "keywords": [
     "vite",
@@ -102,6 +102,9 @@
   },
   "peerDependencies": {
     "vite": "^4.0.0 || ^5.0.0 || ^6.0.0 || ^7.0.0"
+  },
+  "overrides": {
+    "@asyncapi/specs": "6.11.1"
   },
   "engines": {
     "node": ">=18.0.0"
