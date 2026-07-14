@@ -1,6 +1,6 @@
 {
   "name": "vite-plugin-server-actions",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "description": "Server actions for Vite - call backend functions directly from your frontend with automatic API generation, TypeScript support, and zero configuration",
   "keywords": [
     "vite",
