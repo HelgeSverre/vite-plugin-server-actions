@@ -13,11 +13,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # NOTE: no `registry-url` — it makes setup-node write an .npmrc with a
+      # placeholder auth token, which npm then uses instead of falling back to
+      # OIDC. Omitting it lets Trusted Publishing (OIDC) engage against the
+      # default registry (registry.npmjs.org).
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22.x" # >= 22.14.0 required for OIDC trusted publishing
-          registry-url: "https://registry.npmjs.org"
 
       - name: Upgrade npm
         run: npm install -g npm@latest # >= 11.5.1 required for OIDC trusted publishing
