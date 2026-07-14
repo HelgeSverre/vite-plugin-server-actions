@@ -13,14 +13,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # NOTE: no `registry-url` — it makes setup-node write an .npmrc with a
-      # placeholder auth token, which npm then uses instead of falling back to
-      # OIDC. Omitting it lets Trusted Publishing (OIDC) engage against the
-      # default registry (registry.npmjs.org).
+      # Matches npm's official Trusted Publishing example: setup-node@v6 is
+      # OIDC-aware, so registry-url can stay set without the placeholder-token
+      # behavior that blocked OIDC on v4.
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: "22.x" # >= 22.14.0 required for OIDC trusted publishing
+          node-version: "24" # >= 22.14.0 required for OIDC trusted publishing
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false # never cache in release builds
 
       - name: Upgrade npm
         run: npm install -g npm@latest # >= 11.5.1 required for OIDC trusted publishing
@@ -35,7 +36,8 @@ jobs:
       - name: Run tests
         run: npm run check
 
-      # No NODE_AUTH_TOKEN: authentication is handled via OIDC (Trusted Publishing),
-      # and provenance attestations are generated automatically.
+      # No NODE_AUTH_TOKEN: authentication is handled via OIDC (Trusted
+      # Publishing) and provenance attestations are generated automatically.
+      # --loglevel verbose surfaces the OIDC exchange so failures are diagnostic.
       - name: Publish to npm
-        run: npm publish
+        run: npm publish --loglevel verbose
