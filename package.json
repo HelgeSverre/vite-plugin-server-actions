@@ -55,10 +55,10 @@
     "deploy:docs": "cd docs && vc --prod",
     "example:alpine:build": "npm run build --prefix examples/alpine-todo-app",
     "example:alpine:dev": "npm run dev --prefix examples/alpine-todo-app",
-    "example:react-ts:build": "npm run build --prefix examples/react-todo-app-typescript",
-    "example:react-ts:dev": "npm run dev --prefix examples/react-todo-app-typescript",
     "example:react:build": "npm run build --prefix examples/react-todo-app",
     "example:react:dev": "npm run dev --prefix examples/react-todo-app",
+    "example:react-ts:build": "npm run build --prefix examples/react-todo-app-typescript",
+    "example:react-ts:dev": "npm run dev --prefix examples/react-todo-app-typescript",
     "example:svelte:build": "npm run build --prefix examples/svelte-todo-app",
     "example:svelte:dev": "npm run dev --prefix examples/svelte-todo-app",
     "example:vue:build": "npm run build --prefix examples/vue-todo-app",
@@ -74,6 +74,9 @@
     "test:e2e:ui": "playwright test --ui",
     "test:run": "vitest run",
     "typecheck": "tsc --noEmit"
+  },
+  "overrides": {
+    "@asyncapi/specs": "6.11.1"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^7.3.4",
@@ -112,11 +115,13 @@
       "optional": true
     }
   },
-  "overrides": {
-    "@asyncapi/specs": "6.11.1"
-  },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   },
   "readme": "README.md"
 }
