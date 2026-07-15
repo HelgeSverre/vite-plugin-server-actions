@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-07-15
+
+Package-manager compatibility fixes, verified by running the full suite (435 unit + 103 e2e tests) from pristine installs with npm, yarn, pnpm, and bun in a clean container.
+
+### Fixed
+
+- **pnpm installs** - pnpm 10+ blocks dependency build scripts by default, which broke esbuild's binary download. Build allowances are now declared for both mechanisms: `allowBuilds` in `pnpm-workspace.yaml` (pnpm 11+, with `@scarf/scarf` telemetry explicitly denied) and the `pnpm` field in `package.json` (pnpm ≤10).
+- **Phantom test dependency** - `tests/production-build.test.js` imported the undeclared `node-fetch` (masked by npm/yarn/bun hoisting, rejected by pnpm's strict layout); it now uses Node's global `fetch`.
+
 ## [1.3.0] - 2026-07-15
 
 A large stabilization and hardening release: a full adversarially-verified audit fixed 47 bugs across the plugin, middleware became a real production feature, and the toolchain moved to Vite 8. Test coverage grew from 253 to 435 unit tests plus 103 Playwright e2e tests across six example apps.
