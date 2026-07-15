@@ -50,9 +50,16 @@ export async function extractSchemas(serverFunctions) {
  *
  * @param {object} options - Plugin options (middleware, apiPrefix)
  * @param {string} rootDir - Vite project root, used to resolve string entries
+ * @param {object} [warnings] - Warning sinks: `warn` for advisories, `warnDropped`
+ *   for middleware that is EXCLUDED from the build (routed through Rollup's
+ *   warning path so it survives the plugin's `silent` option)
  * @returns {{ imports: Array<{exportName: string, id: string}>, mountCode: string }}
  */
-export function generateMiddlewareCode(options, rootDir = process.cwd()) {
+export function generateMiddlewareCode(
+	options,
+	rootDir = process.cwd(),
+	{ warn = console.warn, warnDropped = warn } = {},
+) {
 	const entries = Array.isArray(options.middleware)
 		? options.middleware
 		: options.middleware
@@ -78,7 +85,7 @@ export function generateMiddlewareCode(options, rootDir = process.cwd()) {
 		}
 
 		if (typeof entry !== "function") {
-			console.warn(
+			warnDropped(
 				`[Vite Server Actions] WARNING: middleware[${index}] is neither a function nor a module path string ` +
 					`and was EXCLUDED from the generated production server.`,
 			);
@@ -90,7 +97,7 @@ export function generateMiddlewareCode(options, rootDir = process.cwd()) {
 		const analysis = analyzeMiddlewareSource(source);
 		if (!analysis.serializable) {
 			const reason = analysis.error || `captures non-global identifier(s): ${analysis.freeVariables.join(", ")}`;
-			console.warn(
+			warnDropped(
 				`[Vite Server Actions] WARNING: ${label} ${reason}. ` +
 					`Serialized functions lose their surrounding scope, so it was EXCLUDED from the generated production server. ` +
 					`Pass a module path string (relative to the Vite root) whose default export is the middleware instead.`,
@@ -101,7 +108,7 @@ export function generateMiddlewareCode(options, rootDir = process.cwd()) {
 		if (analysis.globalReferences.length > 0) {
 			// fn.toString() cannot show whether these names were imports or
 			// module-scope bindings shadowing the globals in the defining module
-			console.warn(
+			warn(
 				`[Vite Server Actions] NOTE: ${label} references runtime global(s) ${analysis.globalReferences.join(", ")}. ` +
 					`In the generated production server these resolve to Node's built-in globals - if any of them is ` +
 					`actually an import or module-scope binding with the same name, the embedded copy will misbehave; ` +

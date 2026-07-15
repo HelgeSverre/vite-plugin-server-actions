@@ -154,6 +154,25 @@ export function createSecureModuleName(filePath) {
 }
 
 /**
+ * Validate that a configured output filename is a plain filename - emitted
+ * build artifacts must land directly in the output directory, so path
+ * separators, traversal segments, and null bytes are rejected
+ * @param {string} fileName - The filename to validate
+ * @returns {boolean}
+ */
+export function isPlainFileName(fileName) {
+	if (!fileName || typeof fileName !== "string") {
+		return false;
+	}
+
+	if (fileName.includes("/") || fileName.includes("\\") || fileName.includes("\0")) {
+		return false;
+	}
+
+	return fileName !== "." && fileName !== "..";
+}
+
+/**
  * Standard error response factory
  * @param {number} status - HTTP status code
  * @param {string} message - Error message

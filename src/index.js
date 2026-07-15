@@ -16,7 +16,14 @@ import { OpenAPIGenerator, setupOpenAPIEndpoints } from "./openapi.js";
 import { generateValidationCode, generateMiddlewareCode } from "./build-utils.js";
 import { extractExportedFunctions, isValidFunctionName } from "./ast-parser.js";
 import { generateTypeDefinitions, generateEnhancedClientProxy } from "./type-generator.js";
-import { sanitizePath, isValidModuleName, createSecureModuleName, createErrorResponse } from "./security.js";
+import {
+	sanitizePath,
+	isValidModuleName,
+	createSecureModuleName,
+	createErrorResponse,
+	isPlainFileName,
+} from "./security.js";
+import { createLogger } from "./logger.js";
 import {
 	enhanceFunctionNotFoundError,
 	enhanceParsingError,
@@ -58,9 +65,10 @@ const SCHEMA_WORKER_PATH = fileURLToPath(new URL("./schema-discovery-worker.js",
  * temp file, and hard-exits - so top-level side effects in user modules
  * (DB connection pools, setInterval, listeners) cannot hang `vite build`.
  * @param {Map} serverFunctions - Map of module names to function info
+ * @param {object} logger - Plugin logger (respects the `silent` option)
  * @returns {Promise<Record<string, object>>} - schemaDiscovery entries keyed by "module.function"
  */
-async function discoverSchemasAtBuildTime(serverFunctions) {
+async function discoverSchemasAtBuildTime(serverFunctions, logger) {
 	const modules = Array.from(serverFunctions.entries()).map(([moduleName, { id }]) => ({ moduleName, id }));
 	if (modules.length === 0) {
 		return {};
@@ -73,11 +81,11 @@ async function discoverSchemasAtBuildTime(serverFunctions) {
 		});
 		const result = JSON.parse(await fs.readFile(outputFile, "utf-8"));
 		for (const warning of result.warnings || []) {
-			console.warn(`[Vite Server Actions] ${warning}`);
+			logger.warn(`[Vite Server Actions] ${warning}`);
 		}
 		return result.schemas || {};
 	} catch (error) {
-		console.warn(
+		logger.warn(
 			`[Vite Server Actions] Build-time schema discovery failed, openapi.json will use generic request bodies: ${error.message}`,
 		);
 		return {};
@@ -261,6 +269,8 @@ const DEFAULT_OPTIONS = {
 	include: ["**/*.server.js", "**/*.server.ts"],
 	exclude: [],
 	middleware: [],
+	serverFileName: "server.js",
+	silent: false,
 	moduleNameTransform: pathUtils.createModuleName,
 	routeTransform: (filePath, functionName) => {
 		// Default to clean hierarchical paths: /api/actions/todo/create
@@ -319,11 +329,27 @@ export default function serverActions(userOptions = {}) {
 			},
 			docsPath: "/api/docs",
 			specPath: "/api/openapi.json",
+			outputFile: "openapi.json",
 			swaggerUI: true,
 			...userOptions.openAPI,
 		},
 	};
 
+	// Reject bad output filenames at config time - emitted artifacts must be
+	// plain filenames landing directly in the output directory
+	for (const [optionName, value] of [
+		["serverFileName", options.serverFileName],
+		["openAPI.outputFile", options.openAPI.outputFile],
+	]) {
+		if (!isPlainFileName(value)) {
+			throw new Error(
+				`[Vite Server Actions] Invalid ${optionName}: ${JSON.stringify(value)}. ` +
+					`Expected a plain filename without path separators (e.g. "server.js").`,
+			);
+		}
+	}
+
+	const logger = createLogger(options.silent);
 	const serverFunctions = new Map();
 	const schemaDiscovery = new SchemaDiscovery(); // Per-instance to avoid cross-instance pollution
 	const tsModuleCache = new Map(); // Per-instance cache for TypeScript modules
@@ -391,7 +417,7 @@ export default function serverActions(userOptions = {}) {
 				} else if (typeof entry === "function") {
 					app.use(options.apiPrefix, entry);
 				} else if (entry != null) {
-					console.warn(`[Vite Server Actions] Ignoring middleware entry that is neither a function nor a module path`);
+					logger.warn(`[Vite Server Actions] Ignoring middleware entry that is neither a function nor a module path`);
 				}
 			}
 
@@ -415,7 +441,7 @@ export default function serverActions(userOptions = {}) {
 										schemaDiscovery.schemas.delete(key);
 									}
 								}
-								console.log(`[HMR] Cleaned up server module: ${moduleName}`);
+								logger.log(`[HMR] Cleaned up server module: ${moduleName}`);
 							}
 						}
 					}
@@ -472,20 +498,20 @@ export default function serverActions(userOptions = {}) {
 									// Delay to appear after Vite's startup messages
 									global.setTimeout(() => {
 										if (viteConfig?.logger) {
-											console.log(`  \x1b[2;32m➜\x1b[0m  API Docs: http://${host}:${port}${docsPath}`);
-											console.log(`  \x1b[2;32m➜\x1b[0m  OpenAPI:  http://${host}:${port}${options.openAPI.specPath}`);
+											logger.log(`  \x1b[2;32m➜\x1b[0m  API Docs: http://${host}:${port}${docsPath}`);
+											logger.log(`  \x1b[2;32m➜\x1b[0m  OpenAPI:  http://${host}:${port}${options.openAPI.specPath}`);
 										} else {
-											console.log(`📖 API Documentation: http://${host}:${port}${docsPath}`);
-											console.log(`📄 OpenAPI Spec: http://${host}:${port}${options.openAPI.specPath}`);
+											logger.log(`📖 API Documentation: http://${host}:${port}${docsPath}`);
+											logger.log(`📄 OpenAPI Spec: http://${host}:${port}${options.openAPI.specPath}`);
 										}
 									}, 50); // Small delay to appear after Vite's ready message
 								});
 							})
 							.catch((error) => {
-								console.warn("Swagger UI setup failed:", error.message);
+								logger.warn("Swagger UI setup failed:", error.message);
 							});
 					} catch (error) {
-						console.warn("Swagger UI setup failed:", error.message);
+						logger.warn("Swagger UI setup failed:", error.message);
 					}
 				}
 			}
@@ -498,7 +524,7 @@ export default function serverActions(userOptions = {}) {
 					// Delay to appear after Vite's startup messages
 					global.setTimeout(() => {
 						if (serverFunctions.size > 0) {
-							console.log(createDevelopmentFeedback(serverFunctions));
+							logger.log(createDevelopmentFeedback(serverFunctions));
 						}
 					}, 100);
 				});
@@ -606,7 +632,7 @@ export default function serverActions(userOptions = {}) {
 					} else if (ownerId !== id) {
 						const suffix = createHash("sha256").update(relativePath).digest("hex").slice(0, 6);
 						const disambiguatedName = `${moduleName}_${suffix}`;
-						console.warn(
+						logger.warn(
 							`[Vite Server Actions] Module name collision: "${relativePath}" and "${ownerId}" ` +
 								`both normalize to "${moduleName}". Using "${disambiguatedName}" for "${relativePath}". ` +
 								`Consider renaming the files or providing a custom moduleNameTransform.`,
@@ -628,7 +654,7 @@ export default function serverActions(userOptions = {}) {
 					for (const fn of exportedFunctions) {
 						// Skip default exports for now (could be supported in future)
 						if (fn.isDefault) {
-							console.warn(
+							logger.warn(
 								createDevelopmentWarning("Default Export Skipped", `Default exports are not currently supported`, {
 									filePath: relativePath,
 									suggestion: "Use named exports instead: export async function myFunction() {}",
@@ -639,7 +665,7 @@ export default function serverActions(userOptions = {}) {
 
 						// Validate function name
 						if (!isValidFunctionName(fn.name)) {
-							console.warn(
+							logger.warn(
 								createDevelopmentWarning(
 									"Invalid Function Name",
 									`Function name '${fn.name}' is not a valid JavaScript identifier`,
@@ -655,7 +681,7 @@ export default function serverActions(userOptions = {}) {
 
 						// Warn about non-async functions
 						if (!fn.isAsync) {
-							console.warn(
+							logger.warn(
 								createDevelopmentWarning(
 									"Non-Async Function",
 									`Function '${fn.name}' is not async. Server actions should typically be async`,
@@ -674,7 +700,7 @@ export default function serverActions(userOptions = {}) {
 					// Check for duplicate function names within the same module
 					const uniqueFunctions = [...new Set(functions)];
 					if (uniqueFunctions.length !== functions.length) {
-						console.warn(`Duplicate function names detected in ${id}`);
+						logger.warn(`Duplicate function names detected in ${id}`);
 					}
 
 					// Store both simple function names and detailed information
@@ -689,12 +715,12 @@ export default function serverActions(userOptions = {}) {
 					if (process.env.NODE_ENV === "development") {
 						// Validate file structure
 						const fileWarnings = validateFileStructure(functionDetails, relativePath);
-						fileWarnings.forEach((warning) => console.warn(warning));
+						fileWarnings.forEach((warning) => logger.warn(warning));
 
 						// Validate individual function signatures
 						functionDetails.forEach((func) => {
 							const funcWarnings = validateFunctionSignature(func, relativePath);
-							funcWarnings.forEach((warning) => console.warn(warning));
+							funcWarnings.forEach((warning) => logger.warn(warning));
 						});
 					}
 
@@ -708,21 +734,21 @@ export default function serverActions(userOptions = {}) {
 							// Validate schema attachment in development
 							if (process.env.NODE_ENV === "development") {
 								const schemaWarnings = validateSchemaAttachment(module, uniqueFunctions, relativePath);
-								schemaWarnings.forEach((warning) => console.warn(warning));
+								schemaWarnings.forEach((warning) => logger.warn(warning));
 							}
 						} catch (error) {
 							const enhancedError = enhanceModuleLoadError(id, error);
-							console.warn(enhancedError.message);
+							logger.warn(enhancedError.message);
 
 							if (process.env.NODE_ENV === "development" && enhancedError.suggestions) {
 								enhancedError.suggestions.forEach((suggestion) => {
-									console.info(`  💡 ${suggestion}`);
+									logger.info(`  💡 ${suggestion}`);
 								});
 							}
 						}
 					} else if (options.validation.enabled && id.endsWith(".ts")) {
 						// For TypeScript files, defer schema discovery to request time
-						console.log(`[Vite Server Actions] Deferring schema discovery for TypeScript file: ${relativePath}`);
+						logger.log(`[Vite Server Actions] Deferring schema discovery for TypeScript file: ${relativePath}`);
 					}
 
 					// Setup routes in development mode only
@@ -761,7 +787,7 @@ export default function serverActions(userOptions = {}) {
 												const module = await importModule(id, viteDevServer, tsModuleCache, moduleVersions);
 												schemaDiscovery.discoverFromModule(module, moduleName);
 											} catch (err) {
-												console.warn(`Failed to discover schemas for ${moduleName}:`, err.message);
+												logger.warn(`Failed to discover schemas for ${moduleName}:`, err.message);
 											}
 										}
 
@@ -792,7 +818,7 @@ export default function serverActions(userOptions = {}) {
 										try {
 											schemaDiscovery.discoverFromModule(module, moduleName);
 										} catch (err) {
-											console.warn(`Failed to discover schemas for ${moduleName}:`, err.message);
+											logger.warn(`Failed to discover schemas for ${moduleName}:`, err.message);
 										}
 									}
 
@@ -897,9 +923,9 @@ export default function serverActions(userOptions = {}) {
 
 					// Provide helpful suggestions in development
 					if (process.env.NODE_ENV === "development" && enhancedError.suggestions.length > 0) {
-						console.info("[Vite Server Actions] 💡 Suggestions:");
+						logger.info("[Vite Server Actions] 💡 Suggestions:");
 						enhancedError.suggestions.forEach((suggestion) => {
-							console.info(`  • ${suggestion}`);
+							logger.info(`  • ${suggestion}`);
 						});
 					}
 
@@ -921,7 +947,12 @@ export default function serverActions(userOptions = {}) {
 			// Prepare user middleware for the production server: string entries are
 			// bundled into actions.js (default exports), embeddable functions are
 			// serialized, closure-capturing functions warn and are excluded
-			const middlewareCodegen = generateMiddlewareCode(options, viteConfig?.root || process.cwd());
+			const middlewareCodegen = generateMiddlewareCode(options, viteConfig?.root || process.cwd(), {
+				warn: logger.warn,
+				// Dropping middleware from the build must stay visible even with
+				// `silent: true`, so it routes through Rollup's warning path
+				warnDropped: typeof this.warn === "function" ? (message) => this.warn(message) : logger.warn,
+			});
 
 			// Create a virtual entry point for all server functions
 			const virtualEntryId = "virtual:server-actions-entry";
@@ -1050,7 +1081,7 @@ export default function serverActions(userOptions = {}) {
 				// importing user modules in-process would execute their top-level side
 				// effects (DB pools, timers, listeners) inside the build process and could
 				// keep `vite build` from ever exiting.
-				const discovered = await discoverSchemasAtBuildTime(serverFunctions);
+				const discovered = await discoverSchemasAtBuildTime(serverFunctions, logger);
 				for (const [key, schema] of Object.entries(discovered)) {
 					schemaDiscovery.schemas.set(key, schema);
 				}
@@ -1066,7 +1097,7 @@ export default function serverActions(userOptions = {}) {
 				// Emit OpenAPI spec as a separate file
 				this.emitFile({
 					type: "asset",
-					fileName: "openapi.json",
+					fileName: options.openAPI.outputFile,
 					source: JSON.stringify(openAPISpec, null, 2),
 				});
 			}
@@ -1086,7 +1117,7 @@ export default function serverActions(userOptions = {}) {
         // Resolve sibling files relative to this script, not the process cwd,
         // so the server works when started from any directory (pm2, systemd, ...)
         const __dirname = dirname(fileURLToPath(import.meta.url));
-        ${options.openAPI.enabled ? "const openAPISpec = JSON.parse(readFileSync(join(__dirname, 'openapi.json'), 'utf-8'));" : ""}
+        ${options.openAPI.enabled ? `const openAPISpec = JSON.parse(readFileSync(join(__dirname, ${JSON.stringify(options.openAPI.outputFile)}), 'utf-8'));` : ""}
         ${validationCode.imports}
         ${validationCode.validationRuntime}
 
@@ -1176,7 +1207,7 @@ export default function serverActions(userOptions = {}) {
 				// Start server
 				// --------------------------------------------------
         const port = process.env.PORT || 3000;
-        app.listen(port, () => {
+        const server = app.listen(port, () => {
 					console.log(\`🚀 Server listening: http://localhost:\${port}\`);
 					${
 						options.openAPI.enabled
@@ -1188,13 +1219,30 @@ export default function serverActions(userOptions = {}) {
 					}
 				});
 
+        // Graceful shutdown: stop accepting new connections, let in-flight
+        // requests finish, then exit 0; force-exit 1 if draining takes >10s
+				// --------------------------------------------------
+        let shuttingDown = false;
+        function shutdown(signal) {
+          if (shuttingDown) return;
+          shuttingDown = true;
+          console.log(\`\${signal} received, shutting down gracefully...\`);
+          setTimeout(() => process.exit(1), 10000).unref();
+          server.close(() => process.exit(0));
+          // Keep-alive sockets with no in-flight request would otherwise
+          // stall close(); busy sockets are closed after their response
+          server.closeIdleConnections?.();
+        }
+        process.once('SIGTERM', () => shutdown('SIGTERM'));
+        process.once('SIGINT', () => shutdown('SIGINT'));
+
         // List all server functions
 				// --------------------------------------------------
       `;
 
 			this.emitFile({
 				type: "asset",
-				fileName: "server.js",
+				fileName: options.serverFileName,
 				source: serverCode,
 			});
 		},

@@ -49,6 +49,15 @@ export interface OpenAPIOptions {
 	 * @default true when OpenAPI is enabled
 	 */
 	swaggerUI?: boolean;
+
+	/**
+	 * Filename of the OpenAPI spec emitted into the build output directory.
+	 * Must be a plain filename without path separators. The generated
+	 * production server reads the spec from this file; the serving paths
+	 * (`specPath`/`docsPath`) are independent of it.
+	 * @default "openapi.json"
+	 */
+	outputFile?: string;
 }
 
 export interface ServerActionOptions {
@@ -94,6 +103,22 @@ export interface ServerActionOptions {
 	 * @default Clean hierarchical paths (removes src/ and .server.js or .server.ts)
 	 */
 	routeTransform?: (filePath: string, functionName: string) => string;
+
+	/**
+	 * Filename of the generated production server emitted into the build
+	 * output directory. Must be a plain filename without path separators.
+	 * @default "server.js"
+	 */
+	serverFileName?: string;
+
+	/**
+	 * Suppress the plugin's own informational console output (dev startup
+	 * feedback, HMR cleanup logs, advisory warnings). Errors always print,
+	 * and build warnings about middleware excluded from the production
+	 * server are routed through Rollup's warning path so they stay visible.
+	 * @default false
+	 */
+	silent?: boolean;
 
 	/**
 	 * Validation configuration
