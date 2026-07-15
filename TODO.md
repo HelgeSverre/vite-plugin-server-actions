@@ -2,13 +2,18 @@
 
 ## Future Tasks
 
-- [ ] Ensure user defined middleware is bundled into production server build
+- [x] Ensure user defined middleware is bundled into production server build (self-contained middleware functions are
+      embedded via `toString()` with free-variable analysis in `src/middleware-analysis.js`; string-path middleware
+      modules are bundled - see `src/build-utils.js`)
 
 ### Configuration Enhancements
 
 - [ ] Add configurable output server filename (default to server.js)
-- [ ] Add ability to disable openapi.json and swagger-ui separately
-- [ ] Allow configuring the output filename/location for openapi.json and swagger-ui when building
+- [x] Add ability to disable openapi.json and swagger-ui separately (`openAPI.enabled` toggles the spec,
+      `openAPI.swaggerUI: false` disables the UI while keeping the spec, in both dev and prod)
+- [ ] Allow configuring the output filename/location for openapi.json and swagger-ui when building (serve paths are
+      already configurable via `openAPI.specPath`/`openAPI.docsPath`; the emitted `dist/openapi.json` filename is still
+      hardcoded)
 - [ ] Allow silencing the logging
 
 ### Additional Examples
@@ -62,10 +67,10 @@
 
 ### Code Organization (Medium Priority)
 
-- [ ] Split large index.js file (~900 lines) into smaller modules
+- [ ] Split large index.js file (~1300 lines) into smaller modules
 - [ ] Extract TypeScript handling to separate module
 - [ ] Reorganize middleware into dedicated directory structure
-- [ ] Create separate build utilities module
+- [x] Create separate build utilities module (`src/build-utils.js`)
 - [ ] Implement plugin system for extensibility
 - [ ] Add middleware composition utilities
 
@@ -80,7 +85,7 @@
 - [ ] Add playground UI for interactive API exploration
 - [ ] Create migration guide from traditional API routes
 - [ ] Add SSR framework support (Next.js, Nuxt.js)
-- [ ] Implement HMR for schema changes
+- [x] Implement HMR for schema changes (the dev watcher invalidates cached modules and their schemas on `.server.js`/`.server.ts` edits and re-discovers on next request; covered by `tests/hmr.test.js`)
 - [ ] Add TypeScript declaration maps for better IDE support
 
 ---

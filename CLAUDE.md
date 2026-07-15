@@ -21,7 +21,9 @@ Key files:
 - `src/index.js` - Main plugin implementation with Vite/Rollup integration
 - `src/validation.js` - Validation middleware and schema discovery system
 - `src/openapi.js` - OpenAPI spec generation and Swagger UI integration
-- `src/build-utils.js` - Production build utilities for validation code generation
+- `src/build-utils.js` - Production build utilities for validation and middleware code generation
+- `src/middleware-analysis.js` - Free-variable analysis that decides whether a user middleware function can be safely embedded (via `toString()`) into the generated production server
+- `src/schema-discovery-worker.js` - Disposable child process spawned during `vite build` that imports user server modules and converts their Zod schemas to OpenAPI form without side effects hanging the build
 - `examples/svelte-todo-app/` - Working Svelte example demonstrating all features
 
 ## Development Commands
@@ -83,5 +85,5 @@ When validation is enabled:
 ## Testing
 
 - Unit tests: `npm test` - Tests plugin functionality, validation, OpenAPI generation
-- E2E tests: `npm run test:e2e` - Tests the todo app example with Playwright
+- E2E tests: `npm run test:e2e` - Tests the example apps with Playwright (requires example dependencies installed; uses ports 5273-5276 and 5278)
 - Production build test: `tests/production-build.test.js` - Verifies production features

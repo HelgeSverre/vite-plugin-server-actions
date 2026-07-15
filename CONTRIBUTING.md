@@ -28,27 +28,33 @@ npm test
 
 ```
 vite-plugin-server-actions/
-├── src/                     # Plugin source code
-│   ├── index.js            # Main plugin implementation
-│   ├── validation.js       # Validation middleware
-│   ├── openapi.js          # OpenAPI generation
-│   ├── middleware.js       # Express middleware utilities
-│   ├── build-utils.js      # Production build utilities
-│   └── types.ts            # TypeScript type definitions
-├── tests/                   # Test files
-│   ├── index.test.js       # Core plugin tests
-│   ├── validation.test.js  # Validation tests
-│   ├── openapi.test.js     # OpenAPI generation tests
-│   ├── e2e/                # End-to-end tests
-│   └── production-build.test.js
-├── examples/                # Example applications
-│   ├── svelte-todo-app/    # Svelte todo example
-│   ├── vue-todo-app/       # Vue todo example
-│   └── react-todo-app/     # React todo example
-├── docs/                    # Documentation
-│   └── index.html          # Landing page for serveractions.dev
-└── index.d.ts              # TypeScript definitions
-
+├── src/                             # Plugin source code
+│   ├── index.js                     # Main plugin implementation
+│   ├── ast-parser.js                # AST-based export/schema extraction
+│   ├── validation.js                # Validation middleware and schema discovery
+│   ├── validation-runtime.js        # Runtime validation helpers (dev + prod)
+│   ├── openapi.js                   # OpenAPI generation and Swagger UI
+│   ├── middleware.js                # Built-in middleware (logging)
+│   ├── middleware-analysis.js       # Free-variable analysis for embedding user middleware in prod builds
+│   ├── schema-discovery-worker.js   # Build-time schema discovery (child process)
+│   ├── build-utils.js               # Production build utilities
+│   ├── security.js                  # Path sanitization helpers
+│   ├── type-generator.js            # .d.ts generation for server modules
+│   ├── dev-validator.js             # Development-time DX warnings
+│   ├── error-enhancer.js            # Enhanced error messages
+│   └── types.ts                     # TypeScript type definitions
+├── tests/                           # Vitest unit/integration tests
+│   └── e2e/                         # Playwright end-to-end tests
+├── examples/                        # Five example apps:
+│   ├── svelte-todo-app/             #   Svelte todo example
+│   ├── vue-todo-app/                #   Vue todo example
+│   ├── react-todo-app/              #   React todo example
+│   ├── react-todo-app-typescript/   #   React + TypeScript todo example
+│   └── typescript-analytics-demo/   #   Advanced TypeScript patterns demo
+├── scripts/
+│   └── reset-todos.js               # Resets example todos.json files (used after E2E runs)
+├── docs/                            # Landing page for serveractions.dev
+└── index.d.ts                       # Public TypeScript definitions
 ```
 
 ## 🛠️ Development Commands
@@ -62,15 +68,35 @@ npm test
 # Run tests once
 npm run test:run
 
-# Run E2E tests with Playwright
+# Run a specific test file
+npx vitest run tests/validation.test.js
+
+# Coverage report (no npm script; uses @vitest/coverage-v8)
+npx vitest run --coverage
+```
+
+### E2E Tests
+
+E2E tests use Playwright and require some one-time setup:
+
+1. Install dependencies in each example app: `npm install` inside every `examples/*` directory
+2. Install Playwright browsers: `npx playwright install chromium`
+
+Playwright starts the example dev servers itself on ports 5273-5276 (todo apps) and 5278 (analytics demo, skipped in CI), so those ports must be free.
+
+```bash
+# Run E2E tests
 npm run test:e2e
 
-# Run E2E tests with UI
+# Run E2E tests with UI / headed browser
 npm run test:e2e:ui
+npm run test:e2e:headed
 
-# Run specific test file
-npm test validation.test.js
+# Reset example todos.json files first, then run E2E tests
+npm run test:e2e:clean
 ```
+
+The tests mutate each todo app's `todos.json`. Run `npm run reset:todos` afterwards to restore them from `examples/todos.template.json`.
 
 ### Code Quality
 
@@ -88,22 +114,20 @@ npm run check
 ### Working with Examples
 
 ```bash
-# Run Svelte example in development
+# Run examples in development (from the repo root)
 npm run example:svelte:dev
-
-# Run Vue example in development
 npm run example:vue:dev
-
-# Run React example in development
 npm run example:react:dev
+npm run example:react-ts:dev
 
 # Build examples
 npm run example:svelte:build
 npm run example:vue:build
 npm run example:react:build
+npm run example:react-ts:build
 
 # Test production build
-cd examples/svelte-todo-app && npm run build && npm run preview
+cd examples/svelte-todo-app && npm run build && node dist/server.js
 ```
 
 ## 🧪 Writing Tests
@@ -131,7 +155,7 @@ describe("Feature Name", () => {
 
 ### E2E Tests
 
-E2E tests use Playwright and test all three framework examples with a shared test suite:
+E2E tests use Playwright and test the example apps in the browser:
 
 ```javascript
 import { test, expect } from "@playwright/test";
@@ -149,7 +173,7 @@ test.describe("Todo App Integration", () => {
 });
 ```
 
-The E2E tests run against all three framework examples (Svelte, Vue, React) using the same test suite located in `tests/e2e/todo-app-shared.spec.js`.
+The four todo-app examples (Svelte, Vue, React, React + TypeScript) share the suite in `tests/e2e/todo-app-shared.spec.js`; the analytics demo has its own spec (`tests/e2e/analytics-demo.spec.js`).
 
 ## 📝 Coding Standards
 
@@ -160,8 +184,8 @@ The E2E tests run against all three framework examples (Svelte, Vue, React) usin
 - Prefer `const` over `let`
 - Use meaningful variable names
 - Add JSDoc comments for public APIs
-- Use tabs for indentation
-- No semicolons (configured in Prettier)
+- Use tabs for indentation (enforced via `.editorconfig`)
+- Semicolons are used (Prettier default, `semi: true` in `.prettierrc`)
 
 ### Commit Messages
 

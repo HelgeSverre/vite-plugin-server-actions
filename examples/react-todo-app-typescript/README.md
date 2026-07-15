@@ -17,23 +17,27 @@ Open [http://localhost:5173](http://localhost:5173) to view it in your browser.
 ## ✨ Features Demonstrated
 
 ### 1. Full TypeScript Support
+
 - Server actions written in TypeScript (`.server.ts`) with proper types
 - React components with full type safety
 - Exported interfaces for `Todo`, `CreateTodoInput`, `UpdateTodoInput`, etc.
 - Type-safe file uploads with `FileUploadResult` interface
 
 ### 2. Zod Schema Validation
+
 - Every server action has attached Zod schemas for runtime validation
 - Automatic request validation with helpful error messages
 - Type inference from schemas for better DX
 
 ### 3. JSDoc Documentation
+
 - All server functions have comprehensive JSDoc comments
 - Parameter descriptions with types
 - Return type documentation
 - Error documentation with `@throws` tags
 
 ### 4. Enhanced DX Features
+
 - Auto-generated TypeScript definitions (`.d.ts` files)
 - Type-safe imports with full IntelliSense support
 - Development-time validation warnings in console
@@ -57,7 +61,9 @@ react-todo-app-typescript/
 ## 🔍 Key Files
 
 ### `/src/actions/todo.server.ts`
+
 The server actions file showcases:
+
 - TypeScript interfaces for all data types
 - Zod schemas attached to each function for validation
 - Proper error handling with typed exceptions
@@ -65,7 +71,9 @@ The server actions file showcases:
 - JSDoc comments for all exported functions
 
 ### `/src/App.tsx`
+
 The React component demonstrates:
+
 - Full TypeScript typing for React components
 - Type-safe usage of server actions
 - Proper event handler typing with React types
@@ -76,18 +84,18 @@ The React component demonstrates:
 
 ```typescript
 // Importing server actions with full type information
-import { 
-  addTodo, 
+import {
+  addTodo,
   uploadFile,
   type Todo,
-  type CreateTodoInput 
+  type CreateTodoInput,
 } from "./actions/todo.server";
 
 // Type-safe todo creation
 const newTodo: CreateTodoInput = {
   text: "Learn TypeScript",
   priority: "high",
-  description: "Master TypeScript with Vite Server Actions"
+  description: "Master TypeScript with Vite Server Actions",
 };
 
 // The plugin ensures type safety and validation
@@ -97,7 +105,7 @@ const result = await addTodo(newTodo); // Returns Promise<Todo>
 const fileResult = await uploadFile({
   filename: "document.pdf",
   content: base64Content, // base64 string
-  mimetype: "application/pdf"
+  mimetype: "application/pdf",
 }); // Returns Promise<FileUploadResult>
 ```
 
@@ -109,20 +117,18 @@ Server actions automatically validate input using attached Zod schemas:
 // This will be validated against CreateTodoSchema
 await addTodo({
   text: "", // ❌ Will fail: "Todo text is required"
-  priority: "urgent" // ❌ Will fail: must be "low" | "medium" | "high"
+  priority: "urgent", // ❌ Will fail: must be "low" | "medium" | "high"
 });
 ```
 
 ## 📚 API Documentation
 
 When running in development mode, the plugin automatically generates:
+
 - **Swagger UI**: http://localhost:5173/api/docs
 - **OpenAPI Spec**: http://localhost:5173/api/openapi.json
 
-The documentation is generated from:
-1. Function signatures and types
-2. JSDoc comments
-3. Zod schemas
+The documentation is generated from the Zod schemas attached to each server action.
 
 ## 🏭 Production Build
 
@@ -135,6 +141,7 @@ node dist/server.js
 ```
 
 The production build includes:
+
 - Bundled server actions with validation
 - Express server with all endpoints
 - Static file serving
@@ -151,13 +158,13 @@ The production build includes:
 
 ## 🤝 Comparison with JavaScript Version
 
-| Feature | JavaScript Version | TypeScript Version |
-|---------|-------------------|-------------------|
-| Type Safety | ❌ Runtime only | ✅ Compile-time + Runtime |
-| IntelliSense | 🟡 Basic | ✅ Full support |
-| Validation | ✅ Zod schemas | ✅ Zod schemas + Types |
-| Error Messages | 🟡 Basic | ✅ Enhanced with context |
-| Dev Warnings | ❌ None | ✅ Missing types/docs warnings |
-| Refactoring | 🟡 Manual | ✅ Automated with IDE |
+| Feature        | JavaScript Version | TypeScript Version             |
+| -------------- | ------------------ | ------------------------------ |
+| Type Safety    | ❌ Runtime only    | ✅ Compile-time + Runtime      |
+| IntelliSense   | 🟡 Basic           | ✅ Full support                |
+| Validation     | ✅ Zod schemas     | ✅ Zod schemas + Types         |
+| Error Messages | 🟡 Basic           | ✅ Enhanced with context       |
+| Dev Warnings   | ❌ None            | ✅ Missing types/docs warnings |
+| Refactoring    | 🟡 Manual          | ✅ Automated with IDE          |
 
 This example demonstrates how Vite Server Actions provides an exceptional developer experience when combined with TypeScript!
