@@ -9,7 +9,13 @@ const __dirname = path.dirname(__filename);
 
 async function resetTodos() {
 	const templatePath = path.join(__dirname, "..", "examples", "todos.template.json");
-	const exampleDirs = ["svelte-todo-app", "vue-todo-app", "react-todo-app", "react-todo-app-typescript"];
+	const exampleDirs = [
+		"svelte-todo-app",
+		"vue-todo-app",
+		"react-todo-app",
+		"react-todo-app-typescript",
+		"alpine-todo-app",
+	];
 
 	try {
 		// Read the template

@@ -53,6 +53,8 @@
   "scripts": {
     "check": "npm run test:run && npm run typecheck",
     "deploy:docs": "cd docs && vc --prod",
+    "example:alpine:build": "npm run build --prefix examples/alpine-todo-app",
+    "example:alpine:dev": "npm run dev --prefix examples/alpine-todo-app",
     "example:react-ts:build": "npm run build --prefix examples/react-todo-app-typescript",
     "example:react-ts:dev": "npm run dev --prefix examples/react-todo-app-typescript",
     "example:react:build": "npm run build --prefix examples/react-todo-app",

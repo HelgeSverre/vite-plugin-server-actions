@@ -49,6 +49,14 @@ export default defineConfig({
 			},
 			testMatch: ["**/todo-app-shared.spec.js", "**/openapi-endpoint.spec.js", "**/typescript-specific.spec.js"],
 		},
+		{
+			name: "alpine",
+			use: {
+				browserName: "chromium",
+				baseURL: "http://localhost:5277",
+			},
+			testMatch: ["**/todo-app-shared.spec.js", "**/openapi-endpoint.spec.js", "**/alpine-helpers.spec.js"],
+		},
 		// Skip analytics demo in CI due to esbuild conflicts
 		...(!process.env.CI
 			? [
@@ -85,6 +93,12 @@ export default defineConfig({
 		{
 			command: "cd examples/react-todo-app-typescript && npm run dev -- --port 5276 --strictPort",
 			url: "http://localhost:5276",
+			reuseExistingServer: !process.env.CI,
+			timeout: 120 * 1000,
+		},
+		{
+			command: "cd examples/alpine-todo-app && npm run dev -- --port 5277 --strictPort",
+			url: "http://localhost:5277",
 			reuseExistingServer: !process.env.CI,
 			timeout: 120 * 1000,
 		},

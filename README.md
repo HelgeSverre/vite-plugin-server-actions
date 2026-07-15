@@ -286,6 +286,51 @@ String entries are re-imported on each request via the plugin's module loader (V
 
 The `authMiddleware` and `corsMiddleware` above are self-contained, so they serialize and run in production. The built-in `middleware.logging` captures its `util` import, so it works in dev but is excluded from production builds with a warning.
 
+### Rate Limiting
+
+A small fixed-window rate limiter, keyed by client IP:
+
+```javascript
+// src/middleware/rate-limit.js
+const WINDOW_MS = 60_000; // 1 minute
+const MAX_REQUESTS = 100; // per IP per window
+
+// Module-level state: this Map lives in the module's scope and persists
+// across requests. That is exactly why this middleware must be passed as
+// a file path - toString() serialization would strip the module scope
+// and lose the Map.
+const hits = new Map();
+
+export default function rateLimit(req, res, next) {
+  const ip = req.ip || req.socket?.remoteAddress || "unknown";
+  const now = Date.now();
+  const entry = hits.get(ip);
+
+  if (!entry || now - entry.windowStart >= WINDOW_MS) {
+    hits.set(ip, { count: 1, windowStart: now });
+    return next();
+  }
+
+  entry.count += 1;
+  if (entry.count > MAX_REQUESTS) {
+    res.set("Retry-After", String(Math.ceil((entry.windowStart + WINDOW_MS - now) / 1000)));
+    return res.status(429).json({ error: true, status: 429, message: "Too many requests" });
+  }
+
+  next();
+}
+```
+
+Register it by file path:
+
+```javascript
+serverActions({
+  middleware: ["./src/middleware/rate-limit.js"],
+});
+```
+
+Use the file-path form here, not an inline function. The limiter holds its state (the `hits` Map) in module scope, so it is NOT self-contained: serializing the function with `toString()` would leave `hits` as a dangling reference, and the build would exclude it from the production server with a warning. As a file path, the module is bundled whole into `dist/actions.js` - state and all - so the same limiter runs in development and production.
+
 ### Built-in Logging Middleware
 
 Vite Server Actions includes a built-in logging middleware that provides detailed console output for debugging. It is development-only: because it captures its `util` import, it cannot be serialized into the generated production server and is excluded from production builds with a warning (see [the serialization constraint](#production-and-the-serialization-constraint)).
@@ -439,6 +484,8 @@ pm2 start dist/server.js --name my-app
 
 The server listens on `process.env.PORT`, defaulting to `3000`.
 
+The generated server shuts down gracefully on `SIGTERM` and `SIGINT`: it stops accepting new connections, lets in-flight requests finish, then exits with code 0. If draining takes longer than 10 seconds, it force-exits with code 1. This works out of the box with PM2, systemd, Docker, and Kubernetes rolling deploys.
+
 The generated `dist/server.js` is working-directory independent: it resolves every sibling file relative to the script itself via `import.meta.url` (`const __dirname = dirname(fileURLToPath(import.meta.url))`). Static client assets are served with `express.static(__dirname)` - the `dist` directory containing `server.js` - and `openapi.json` is read from `join(__dirname, 'openapi.json')`. So `node dist/server.js`, `pm2 start dist/server.js`, systemd units, and Docker entrypoints work from ANY working directory: `index.html`, hashed assets, the API routes, `/api/openapi.json`, and `/api/docs` all serve correctly. Note: paths inside your own action code (e.g. `process.cwd()`-based data files) remain relative to whatever directory you start the server from.
 
 ### Docker
@@ -590,8 +637,12 @@ readAllowedFile.schema = FileSchema;
 | `exclude`        | `string \| string[]`                         | `[]`                                   | Files to ignore                                                                                 |
 | `middleware`     | `Function \| string \| (Function\|string)[]` | `[]`                                   | Middleware mounted on the API prefix: functions or module paths (see [Middleware](#middleware)) |
 | `routeTransform` | `Function`                                   | `pathUtils.createCleanRoute`           | Customize URL generation (see [Routing](#routing))                                              |
+| `serverFileName` | `string`                                     | `"server.js"`                          | Filename of the generated production server in `dist/` (plain filename, no path separators)     |
+| `silent`         | `boolean`                                    | `false`                                | Suppress the plugin's informational console output (see note below)                             |
 | `validation`     | `Object`                                     | `{ enabled: false }`                   | Validation settings                                                                             |
 | `openAPI`        | `Object`                                     | `{ enabled: false }`                   | OpenAPI documentation settings                                                                  |
+
+`silent: true` suppresses the plugin's own dev/build-time chatter: the dev startup feedback banner, HMR cleanup logs, endpoint/schema discovery messages, and advisory warnings (non-async function hints, module-name collisions, schema discovery fallbacks). Errors always print. Warnings about middleware being **excluded** from the production build are routed through Rollup's build warning path, so they remain visible during `vite build` even with `silent: true` - dropping code from the build should never be invisible. The generated production server's own runtime logging is unaffected by this option.
 
 ### Validation Options
 
@@ -604,13 +655,14 @@ Validation is disabled by default. Enable it explicitly in your configuration. S
 
 ### OpenAPI Options
 
-| Option      | Type      | Default               | Description                               |
-| ----------- | --------- | --------------------- | ----------------------------------------- |
-| `enabled`   | `boolean` | `false`               | Enable OpenAPI generation                 |
-| `swaggerUI` | `boolean` | `true`                | Enable Swagger UI when OpenAPI is enabled |
-| `info`      | `Object`  | See below             | OpenAPI specification info                |
-| `docsPath`  | `string`  | `"/api/docs"`         | Path for Swagger UI                       |
-| `specPath`  | `string`  | `"/api/openapi.json"` | Path for OpenAPI JSON spec                |
+| Option       | Type      | Default               | Description                                                                                   |
+| ------------ | --------- | --------------------- | --------------------------------------------------------------------------------------------- |
+| `enabled`    | `boolean` | `false`               | Enable OpenAPI generation                                                                     |
+| `swaggerUI`  | `boolean` | `true`                | Enable Swagger UI when OpenAPI is enabled                                                     |
+| `info`       | `Object`  | See below             | OpenAPI specification info                                                                    |
+| `docsPath`   | `string`  | `"/api/docs"`         | Path for Swagger UI                                                                           |
+| `specPath`   | `string`  | `"/api/openapi.json"` | Path for OpenAPI JSON spec                                                                    |
+| `outputFile` | `string`  | `"openapi.json"`      | Filename of the emitted spec in `dist/` (plain filename; serving paths above are independent) |
 
 Default `info` object:
 
@@ -659,10 +711,10 @@ The `code` differs by mode: the development middleware sends `INTERNAL_ERROR`, w
 
 `vite build` generates:
 
-- `dist/server.js` - Your Express server with all endpoints
+- `dist/server.js` - Your Express server with all endpoints (filename configurable via `serverFileName`)
 - `dist/actions.js` - Bundled server functions
 - `dist/actions.d.ts` - Type definitions for the bundled functions
-- `dist/openapi.json` - API specification (if enabled)
+- `dist/openapi.json` - API specification (if enabled; filename configurable via `openAPI.outputFile`)
 - Client assets with proxy functions
 
 ## Requirements & Compatibility
@@ -725,6 +777,7 @@ Best practices for your own actions:
 - [Todo App with Vue](examples/vue-todo-app) - Same todo app built with Vue 3
 - [Todo App with React](examples/react-todo-app) - Same todo app built with React
 - [Todo App with React + TypeScript](examples/react-todo-app-typescript) - Fully-typed version of the React todo app
+- [Todo App with Alpine.js](examples/alpine-todo-app) - Same todo app built with Alpine.js, demonstrating copy-pasteable helper primitives (`$server`, `$action`, `x-action`, `$query`) for calling server actions from Alpine markup
 - [TypeScript Analytics Demo](examples/typescript-analytics-demo) - Analytics dashboard demonstrating advanced TypeScript features
 
 ## Contributing

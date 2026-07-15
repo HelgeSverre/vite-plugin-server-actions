@@ -31,6 +31,7 @@ jobs:
           cd ../vue-todo-app && npm ci
           cd ../react-todo-app && npm ci
           cd ../react-todo-app-typescript && npm ci
+          cd ../alpine-todo-app && npm ci
           cd ../typescript-analytics-demo && npm ci
 
       - name: Run type checking

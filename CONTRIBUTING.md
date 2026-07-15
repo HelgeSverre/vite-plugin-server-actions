@@ -45,11 +45,12 @@ vite-plugin-server-actions/
 │   └── types.ts                     # TypeScript type definitions
 ├── tests/                           # Vitest unit/integration tests
 │   └── e2e/                         # Playwright end-to-end tests
-├── examples/                        # Five example apps:
+├── examples/                        # Six example apps:
 │   ├── svelte-todo-app/             #   Svelte todo example
 │   ├── vue-todo-app/                #   Vue todo example
 │   ├── react-todo-app/              #   React todo example
 │   ├── react-todo-app-typescript/   #   React + TypeScript todo example
+│   ├── alpine-todo-app/             #   Alpine.js todo example (helper primitives)
 │   └── typescript-analytics-demo/   #   Advanced TypeScript patterns demo
 ├── scripts/
 │   └── reset-todos.js               # Resets example todos.json files (used after E2E runs)
@@ -82,7 +83,7 @@ E2E tests use Playwright and require some one-time setup:
 1. Install dependencies in each example app: `npm install` inside every `examples/*` directory
 2. Install Playwright browsers: `npx playwright install chromium`
 
-Playwright starts the example dev servers itself on ports 5273-5276 (todo apps) and 5278 (analytics demo, skipped in CI), so those ports must be free.
+Playwright starts the example dev servers itself on ports 5273-5277 (todo apps) and 5278 (analytics demo, skipped in CI), so those ports must be free.
 
 ```bash
 # Run E2E tests
@@ -119,12 +120,14 @@ npm run example:svelte:dev
 npm run example:vue:dev
 npm run example:react:dev
 npm run example:react-ts:dev
+npm run example:alpine:dev
 
 # Build examples
 npm run example:svelte:build
 npm run example:vue:build
 npm run example:react:build
 npm run example:react-ts:build
+npm run example:alpine:build
 
 # Test production build
 cd examples/svelte-todo-app && npm run build && node dist/server.js
@@ -173,7 +176,7 @@ test.describe("Todo App Integration", () => {
 });
 ```
 
-The four todo-app examples (Svelte, Vue, React, React + TypeScript) share the suite in `tests/e2e/todo-app-shared.spec.js`; the analytics demo has its own spec (`tests/e2e/analytics-demo.spec.js`).
+The five todo-app examples (Svelte, Vue, React, React + TypeScript, Alpine.js) share the suite in `tests/e2e/todo-app-shared.spec.js`; the Alpine example additionally runs `tests/e2e/alpine-helpers.spec.js`, and the analytics demo has its own spec (`tests/e2e/analytics-demo.spec.js`).
 
 ## 📝 Coding Standards
 

@@ -8,26 +8,30 @@
 
 ### Configuration Enhancements
 
-- [ ] Add configurable output server filename (default to server.js)
+- [x] Add configurable output server filename (default to server.js) (`serverFileName` option; plain-filename
+      validation at config time; covered by `tests/config-options.test.js`)
 - [x] Add ability to disable openapi.json and swagger-ui separately (`openAPI.enabled` toggles the spec,
       `openAPI.swaggerUI: false` disables the UI while keeping the spec, in both dev and prod)
-- [ ] Allow configuring the output filename/location for openapi.json and swagger-ui when building (serve paths are
-      already configurable via `openAPI.specPath`/`openAPI.docsPath`; the emitted `dist/openapi.json` filename is still
-      hardcoded)
-- [ ] Allow silencing the logging
+- [x] Allow configuring the output filename/location for openapi.json and swagger-ui when building (`openAPI.outputFile`
+      controls the emitted spec filename and the generated server reads it via `join(__dirname, <outputFile>)`; serve
+      paths stay configurable via `openAPI.specPath`/`openAPI.docsPath`; covered by `tests/config-options.test.js`)
+- [x] Allow silencing the logging (`silent: true` suppresses the plugin's log/info/warn chatter via `src/logger.js`;
+      errors always print and middleware-exclusion warnings route through Rollup's build warning path; covered by
+      `tests/config-options.test.js`)
 
 ### Additional Examples
 
 - [x] Add Vue.js example todo app (exact replica of Svelte functionality)
 - [x] Add React example todo app (exact replica of Svelte functionality)
 - [ ] Add Riot.js example todo app (exact replica of Svelte functionality)
-- [ ] Add Alpine.js example todo app (exact replica of Svelte functionality)
+- [x] Add Alpine.js example todo app (exact replica of Svelte functionality) - `examples/alpine-todo-app`, runs the shared e2e suite plus `tests/e2e/alpine-helpers.spec.js` and ships copy-pasteable Alpine helpers (`$server`/`$action`/`x-action`/`$query`) in `src/alpine-server-actions.js`
 
 ### Features
 
 - [ ] Add WebSocket support for real-time server actions (alternative transport mechanism instead of HTTP fetch calls
       from the client-side)
-- [ ] Add rate limiting middleware example
+- [x] Add rate limiting middleware example (fixed-window per-IP limiter documented in the README's Middleware guide as
+      file-path middleware; the example code is exercised by `tests/config-options.test.js`)
 - [ ] Add "drop-in" simple authentication middleware that uses cookies/sessions and json/sqlite for storing user
       accounts and authenticated session (not really meant for prod usage, but it could i guess)
 - [ ] Add support for streaming responses
@@ -46,7 +50,9 @@
 
 ### Production Readiness (High Priority)
 
-- [ ] Add graceful shutdown handling (SIGTERM/SIGINT) with connection draining
+- [x] Add graceful shutdown handling (SIGTERM/SIGINT) with connection draining (the generated production server stops
+      accepting connections, drains in-flight requests, exits 0, and force-exits 1 after 10s; covered by a real
+      boot/SIGTERM test in `tests/config-options.test.js`)
 - [ ] Implement health check endpoints (/health, /ready) with custom checks
 - [ ] Add request ID tracking for debugging and correlation
 - [ ] Include structured logging for production environments

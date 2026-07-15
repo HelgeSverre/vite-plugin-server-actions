@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>TODO Example Alpine</title>
+	</head>
+	<body>
+		<main
+			x-data="{
+				draft: '',
+				fileName: '',
+				todos: $query($server.todos.getTodos, { refetchOn: 'sa:success' }),
+			}"
+		>
+			<h1>Todo List - Alpine Edition</h1>
+
+			<!--
+				x-action serializes the form into one object argument and calls the
+				server action. The `.reset` modifier clears the form after success.
+				$formAction (pending/error/data/ok) is in scope for everything inside.
+			-->
+			<form
+				x-action.reset="$server.todos.addTodo"
+				class="todo-form"
+				data-testid="todo-form"
+			>
+				<div class="form-group">
+					<input
+						class="todo-input"
+						name="text"
+						x-model="draft"
+						type="text"
+						placeholder="What needs to be done?"
+						data-testid="todo-input"
+					/>
+					<p
+						class="field-error"
+						x-show="$formAction.errorFor('text')"
+						x-text="$formAction.errorFor('text')"
+					></p>
+					<textarea
+						class="todo-description"
+						name="description"
+						placeholder="Add a description (optional)"
+						data-testid="todo-description"
+						rows="2"
+					></textarea>
+					<p
+						class="field-error"
+						x-show="$formAction.errorFor('description')"
+						x-text="$formAction.errorFor('description')"
+					></p>
+					<div class="form-row">
+						<select
+							class="priority-select"
+							name="priority"
+							data-testid="priority-select"
+						>
+							<option value="low">🟢 Low</option>
+							<option value="medium" selected>🟡 Medium</option>
+							<option value="high">🔴 High</option>
+						</select>
+						<label class="file-label">
+							<input
+								type="file"
+								name="file"
+								class="file-input"
+								data-testid="file-input"
+								accept="image/*,text/*,.pdf,.doc,.docx"
+								@change="fileName = $event.target.files[0]?.name ?? ''"
+							/>
+							<span
+								class="file-label-text"
+								x-text="fileName ? `📎 ${fileName}` : '📎 Attach file'"
+							></span>
+						</label>
+					</div>
+				</div>
+				<button
+					type="submit"
+					class="todo-button"
+					:disabled="$formAction.pending || !draft.trim()"
+					data-testid="add-button"
+				>
+					Add Todo
+				</button>
+				<span
+					class="form-pending"
+					x-show="$formAction.pending"
+					data-testid="form-pending"
+					>Adding…</span
+				>
+				<p
+					class="form-error"
+					x-show="$formAction.error && !$formAction.error.validationErrors"
+					x-text="$formAction.error?.message"
+					data-testid="form-error"
+				></p>
+			</form>
+
+			<p class="error" x-show="todos.error" x-text="todos.error?.message"></p>
+
+			<ul class="todo-list">
+				<template x-for="todo in todos.data ?? []" :key="todo.id">
+					<!--
+						Each row gets its own $action instances, so pending/error state
+						is per-row: deleting one todo never disables another row's button.
+					-->
+					<li
+						class="todo-item"
+						data-testid="todo-item"
+						x-data="{
+							toggle: $action($server.todos.updateTodo),
+							remove: $action($server.todos.deleteTodo),
+						}"
+					>
+						<input
+							type="checkbox"
+							:checked="todo.completed"
+							:disabled="toggle.pending"
+							@change="toggle(todo.id, { completed: $event.target.checked })"
+							data-testid="todo-checkbox"
+						/>
+
+						<div class="todo-content">
+							<div class="todo-header">
+								<span
+									class="todo-text"
+									:class="{ completed: todo.completed }"
+									x-text="todo.text"
+									data-testid="todo-text"
+								>
+								</span>
+								<span
+									x-show="todo.priority"
+									class="priority"
+									:class="`priority-${todo.priority}`"
+									x-text="todo.priority"
+									data-testid="todo-priority"
+								></span>
+							</div>
+
+							<template x-if="todo.description">
+								<p class="todo-description-text" x-text="todo.description"></p>
+							</template>
+
+							<template x-if="todo.filepath">
+								<div class="file-preview">
+									<template
+										x-if="/\.(jpg|jpeg|png|gif|webp)$/i.test(todo.filepath)"
+									>
+										<a
+											:href="todo.filepath"
+											target="_blank"
+											rel="noopener noreferrer"
+										>
+											<img
+												:src="todo.filepath"
+												:alt="todo.text"
+												class="preview-image"
+												data-testid="todo-file-preview"
+											/>
+										</a>
+									</template>
+									<template
+										x-if="!/\.(jpg|jpeg|png|gif|webp)$/i.test(todo.filepath)"
+									>
+										<a
+											:href="todo.filepath"
+											target="_blank"
+											rel="noopener noreferrer"
+											class="file-link"
+											data-testid="todo-file"
+										>
+											📎 View file
+										</a>
+									</template>
+								</div>
+							</template>
+
+							<p
+								class="row-error"
+								x-show="toggle.error || remove.error"
+								x-text="(toggle.error || remove.error)?.message"
+							></p>
+						</div>
+
+						<button
+							@click="remove(todo.id)"
+							:disabled="remove.pending"
+							class="delete-button"
+							data-testid="delete-button"
+						>
+							Delete
+						</button>
+					</li>
+				</template>
+			</ul>
+		</main>
+
+		<script type="module" src="/src/main.js"></script>
+	</body>
+</html>
