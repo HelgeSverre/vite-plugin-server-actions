@@ -722,7 +722,7 @@ The `code` differs by mode: the development middleware sends `INTERNAL_ERROR`, w
 - Node.js 18+ to use the plugin with Vite 4–6; Vite 7 and 8 themselves require Node `^20.19 || >=22.12`
 - Vite 4–8 (peer dependency range `^4 || ^5 || ^6 || ^7 || ^8`). The automated test suite and all example apps run against Vite 8 on Node 20/22/24/26 in CI; Vite 4–7 are accepted by the peer range but not covered by automated tests
 - Validation requires zod v3 (`zod@^3`). zod 4 is not yet supported: its changed `ZodError` shape makes the generated production server return HTTP 500 instead of 400 for validation failures
-- Tested with Svelte, Vue, React, and TypeScript React, with feature parity between development and production modes
+- Tested with Svelte, Vue, React, TypeScript React, and Alpine.js, with feature parity between development and production modes
 
 ## Exports
 

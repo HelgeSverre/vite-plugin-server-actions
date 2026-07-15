@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-07-15
+
+A large stabilization and hardening release: a full adversarially-verified audit fixed 47 bugs across the plugin, middleware became a real production feature, and the toolchain moved to Vite 8. Test coverage grew from 253 to 435 unit tests plus 103 Playwright e2e tests across six example apps.
+
+### Added
+
+- **Production Middleware** - User middleware now works in production builds. Self-contained middleware functions are embedded into the generated server via `fn.toString()`, gated by static free-variable analysis; middleware that captures module scope can be passed as a module path string, which is bundled into `dist/actions.js`. Middleware sees all API-prefix requests including CORS `OPTIONS` preflights, in both dev and production.
+- **`serverFileName` option** - Configurable production server filename (default `server.js`).
+- **`openAPI.outputFile` option** - Configurable emitted spec filename (default `openapi.json`).
+- **`silent` option** - Suppresses the plugin's dev/build console output; errors and Rollup build warnings still surface.
+- **Graceful shutdown** - The generated production server handles `SIGTERM`/`SIGINT`: stops accepting connections, drains in-flight requests, exits cleanly (10s force-exit backstop).
+- **Alpine.js example** (`examples/alpine-todo-app`) - Full todo app built on a copyable Alpine plugin providing `$server` (action registry), `$action` (reactive pending/error/data state), `x-action` (form directive with validation-error mapping and a `.reset` modifier), and `$query` (SWR-style reads with event-driven refetch).
+- **Rate limiting middleware example** in the README, demonstrating the module-path middleware form for stateful middleware.
+- Regression tests for issues [#3](https://github.com/HelgeSverre/vite-plugin-server-actions/issues/3) (non-default ports reflected in the OpenAPI spec) and [#5](https://github.com/HelgeSverre/vite-plugin-server-actions/issues/5) (Node built-ins in `.server.ts` never leak into client bundles).
+
+### Fixed
+
+47 verified bugs, including:
+
+- **Stale dev code** - Editing a `.server.js` file (or one of its helper imports) now serves fresh code on the next request; previously Node's ESM cache served stale code until a dev-server restart.
+- **HMR schema wipe** - Editing one server file no longer silently disables Zod validation for all other modules; first-request validation bypass for `.server.ts` actions closed.
+- **Empty production OpenAPI spec** - `dist/openapi.json` now contains real Zod-derived request schemas; schema discovery runs in a disposable child process so user-module side effects cannot hang `vite build`.
+- **Stack trace leak** - The generated production server no longer includes stack traces and internal error details by default (only when `NODE_ENV=development`).
+- **Module naming** - Files like `404.server.js` or `class.server.js` no longer break the build; distinct files that normalize to the same module name get deterministic suffixes instead of silently overwriting each other.
+- **Codegen robustness** - Destructured parameters with defaults no longer crash proxy generation; re-exports warn instead of silently disappearing; generated `.d.ts` files are always valid TypeScript; file paths are escaped in all generated code.
+- **Validation correctness** - Tuple schemas are no longer double-wrapped in the OpenAPI spec; nested `.openapi('Name')` schemas resolve their `$ref`s; query strings no longer bypass the standalone validation middleware; error response shapes are unified across dev, production, and the documented OpenAPI contract.
+- **Error handling parity** - User-thrown errors with `status`/`statusCode` (400-599) are honored identically in dev and production; user errors whose message contains "not found" are no longer misclassified as 404s.
+- **Path handling** - `include`/`exclude` support project-root-relative glob patterns; `sanitizePath` enforces containment in every `NODE_ENV` while honoring `server.fs.allow`; the production server resolves static assets and the spec relative to itself, so it runs from any working directory (pm2/systemd/Docker safe).
+
+### Changed
+
+- **Toolchain** - Vite 8 + Vitest 4; peer range widened to Vite `^4 || ^5 || ^6 || ^7 || ^8`; CI matrix now Node 20/22/24/26 (Vite 7+ requires Node `^20.19 || >=22.12`; Node 18 remains supported for consumers using Vite 4-6).
+- **zod constraint** - Validation requires zod `^3` (declared as an optional peer dependency); zod 4's changed `ZodError` shape is not yet supported.
+- **Documentation** - README restructured along Diátaxis lines (Getting Started / Guides / Reference / How It Works); every technical claim audited against the code. `CLAUDE.md` renamed to `AGENTS.md`.
+- **Examples** - All examples upgraded to Vite 8; the Svelte example moved to Svelte 5.
+
+### Removed
+
+- Stale repository artifacts (`verification-demos/`, ad-hoc scripts, one-off release notes).
+
 ## [1.2.0] - 2025-12-21
 
 This release focuses on stability, correctness, and documentation accuracy in preparation for public release.
