@@ -189,6 +189,46 @@ export async function callA(): Promise<string> {
 		expect(result).toBeTruthy();
 	});
 
+	// Regression for issue #5: a .server.ts importing Node built-ins (fs, path,
+	// crypto) must reach the browser only as a fetch proxy. If any server code
+	// leaks into the client output, Vite externalizes the built-ins and the
+	// browser throws "Module 'fs' has been externalized for browser
+	// compatibility".
+	it("should generate an fs-free client proxy for .server.ts files using Node built-ins", async () => {
+		const fsPath = path.join(tempDir, "write.server.ts");
+		await fs.writeFile(
+			fsPath,
+			`
+import nodeFs from "fs";
+import nodePath from "path";
+import crypto from "crypto";
+
+export async function writeToFile(filename: string, content: string) {
+  const safe = nodePath.basename(filename) + "-" + crypto.randomUUID();
+  nodeFs.writeFileSync(safe, content, "utf8");
+  return { success: true, filename: safe };
+}
+      `.trim(),
+		);
+
+		const plugin = viteServer.config.plugins.find((p) => p.name === "vite-plugin-server-actions");
+		const result = await plugin.load(fsPath);
+
+		// The client module is a proxy for the exported function...
+		expect(result).toBeTruthy();
+		expect(result).toContain("writeToFile");
+		expect(result).toContain("fetch(");
+
+		// ...and carries none of the server-side implementation or imports.
+		expect(result).not.toMatch(/from\s+["'](node:)?fs["']/);
+		expect(result).not.toMatch(/from\s+["'](node:)?crypto["']/);
+		expect(result).not.toContain("writeFileSync");
+
+		// The server still executes the real module (fs and friends intact).
+		const module = await viteServer.ssrLoadModule(fsPath);
+		expect(typeof module.writeToFile).toBe("function");
+	});
+
 	it("should cache TypeScript modules to avoid recompilation", async () => {
 		const utilsPath = path.join(tempDir, "utils.server.ts");
 

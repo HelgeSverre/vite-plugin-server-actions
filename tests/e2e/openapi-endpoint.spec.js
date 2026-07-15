@@ -27,5 +27,10 @@ test.describe("OpenAPI endpoint", () => {
 		expect(spec.paths["/api/actions/todo/addTodo"]).toBeDefined();
 		expect(spec.paths["/api/actions/todo/updateTodo"]).toBeDefined();
 		expect(spec.paths["/api/actions/todo/deleteTodo"]).toBeDefined();
+
+		// Regression for issue #3: the spec's server URL must reflect the port
+		// the dev server actually runs on (every e2e project uses a non-default
+		// port), not a hardcoded 5173.
+		expect(spec.servers?.[0]?.url).toBe(baseURL);
 	});
 });
