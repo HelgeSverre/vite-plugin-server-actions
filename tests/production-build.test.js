@@ -4,7 +4,6 @@ import { fileURLToPath } from "url";
 import os from "os";
 import path from "path";
 import fs from "fs/promises";
-import fetch from "node-fetch";
 import net from "net";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
