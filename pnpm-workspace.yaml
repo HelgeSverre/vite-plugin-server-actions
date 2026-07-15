@@ -1,0 +1,5 @@
+# pnpm >=10 blocks dependency build scripts by default; esbuild needs its
+# postinstall to fetch the platform binary. pnpm 11+ reads this file only
+# (the package.json "pnpm" field remains for pnpm <=10).
+allowBuilds:
+  esbuild: true
