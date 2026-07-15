@@ -3,3 +3,5 @@
 # (the package.json "pnpm" field remains for pnpm <=10).
 allowBuilds:
   esbuild: true
+  # analytics/telemetry postinstall (transitive via swagger tooling) - denied
+  "@scarf/scarf": false
