@@ -359,7 +359,7 @@ describe("createValidationMiddleware", () => {
 		expect(mockRes.json).toHaveBeenCalledWith({
 			error: true,
 			status: 400,
-			message: "Request body must be a non-empty array of function arguments",
+			message: "Request body must be an array of function arguments",
 			code: "INVALID_REQUEST_BODY",
 			timestamp: expect.any(String),
 		});

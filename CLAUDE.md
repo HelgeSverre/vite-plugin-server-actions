@@ -11,9 +11,9 @@ This is **Vite Server Actions** - a Vite plugin that enables creating server-sid
 The plugin works by:
 
 1. Scanning for files ending with `.server.js` or `.server.ts` during the build process
-2. Extracting exported functions using regex parsing
-3. In development: Creating Express middleware endpoints at `/api/{moduleName}/{functionName}`
-4. In production: Bundling server functions and generating a standalone Express server
+2. Extracting exported functions using AST parsing (`@babel/parser` via `src/ast-parser.js`)
+3. In development: Creating Express middleware endpoints at `/api/{routePath}/{functionName}`, where the route path comes from the configurable `routeTransform`. The default transform strips the leading `src/` and the `.server.js`/`.server.ts` suffix but keeps the directory hierarchy, so `src/actions/todo.server.js` maps to `/api/actions/todo/{functionName}`
+4. In production: Bundling server functions and generating a standalone Express server with the same routes
 5. Client imports are transformed to proxy functions that make HTTP POST requests to the server endpoints
 
 Key files:
@@ -59,7 +59,7 @@ The plugin transforms imports like:
 import { addTodo } from "./actions/todo.server.js";
 ```
 
-Into client-side proxy functions that POST to `/api/todo/addTodo`.
+Into client-side proxy functions that POST to the transformed route (for a file at `src/actions/todo.server.js`, the default `routeTransform` produces `/api/actions/todo/addTodo`).
 
 ## Production Build Output
 
@@ -67,7 +67,7 @@ The build process generates:
 
 - `dist/actions.js` - Bundled server functions with attached Zod schemas
 - `dist/server.js` - Express server with API endpoints, validation middleware, and OpenAPI support
-- `dist/openapi.json` - OpenAPI 3.0 specification (if validation is enabled)
+- `dist/openapi.json` - OpenAPI 3.0 specification (if OpenAPI is enabled)
 - Client bundles with proxy functions replacing server imports
 
 ## Validation and OpenAPI

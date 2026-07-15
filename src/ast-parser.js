@@ -35,6 +35,22 @@ export function extractExportedFunctions(code, filename = "unknown") {
 			ExportNamedDeclaration(path) {
 				const declaration = path.node.declaration;
 
+				// Re-exports (export { x } from './other') are not supported: the whole
+				// module is replaced by a generated proxy, so re-exported names would be
+				// silently dropped.
+				if (path.node.source) {
+					const droppedNames = path.node.specifiers
+						.map((spec) => (spec.exported ? spec.exported.name || spec.exported.value : null))
+						.filter(Boolean);
+					console.warn(
+						`[Vite Server Actions] Warning: Re-exports are not supported and will be dropped in ${filename}: ` +
+							`export { ${droppedNames.join(", ")} } from "${path.node.source.value}". ` +
+							`Define and export these functions directly in this file.`,
+					);
+					path.skip();
+					return;
+				}
+
 				if (declaration && declaration.type === "FunctionDeclaration") {
 					if (declaration.id) {
 						functions.push({
@@ -63,7 +79,7 @@ export function extractExportedFunctions(code, filename = "unknown") {
 								type: "arrow",
 								params: extractDetailedParams(decl.init.params),
 								returnType: extractTypeAnnotation(decl.init.returnType),
-								jsdoc: extractJSDoc(declaration.leadingComments),
+								jsdoc: extractJSDoc(path.node.leadingComments),
 							});
 						}
 					});
@@ -100,11 +116,23 @@ export function extractExportedFunctions(code, filename = "unknown") {
 				}
 			},
 
+			// Handle: export * from './other' - not supported, warn loudly
+			ExportAllDeclaration(path) {
+				console.warn(
+					`[Vite Server Actions] Warning: 'export * from "${path.node.source.value}"' in ${filename} is not supported ` +
+						`and its exports will be dropped. Define and export the functions directly in this file.`,
+				);
+			},
+
 			// Handle: export { functionName } or export { internalName as publicName }
 			ExportSpecifier(path) {
 				// We need to track these and match them with function declarations
 				const localName = path.node.local.name;
-				const exportedName = path.node.exported.name;
+				// The exported name can be an Identifier or a StringLiteral (export { foo as "bar baz" })
+				const exportedName =
+					path.node.exported.type === "Identifier" ? path.node.exported.name : path.node.exported.value;
+				// export { foo as default } is a default export and must be treated as such
+				const isDefault = exportedName === "default";
 
 				// Look for the function in the module scope
 				const binding = path.scope.getBinding(localName);
@@ -112,7 +140,7 @@ export function extractExportedFunctions(code, filename = "unknown") {
 					functions.push({
 						name: exportedName,
 						isAsync: binding.path.node.async || false,
-						isDefault: false,
+						isDefault,
 						type: "renamed",
 						params: extractDetailedParams(binding.path.node.params),
 						returnType: extractTypeAnnotation(binding.path.node.returnType),
@@ -127,7 +155,7 @@ export function extractExportedFunctions(code, filename = "unknown") {
 						functions.push({
 							name: exportedName,
 							isAsync: init.async || false,
-							isDefault: false,
+							isDefault,
 							type: "renamed-arrow",
 							params: extractDetailedParams(init.params),
 							returnType: extractTypeAnnotation(init.returnType),
@@ -149,14 +177,65 @@ export function extractExportedFunctions(code, filename = "unknown") {
 	return uniqueFunctions;
 }
 
+// Reserved words that cannot be used as function names in the generated client code
+// (module code is always strict, so strict-mode reserved words are included)
+const RESERVED_WORDS = new Set([
+	"await",
+	"break",
+	"case",
+	"catch",
+	"class",
+	"const",
+	"continue",
+	"debugger",
+	"default",
+	"delete",
+	"do",
+	"else",
+	"enum",
+	"export",
+	"extends",
+	"false",
+	"finally",
+	"for",
+	"function",
+	"if",
+	"implements",
+	"import",
+	"in",
+	"instanceof",
+	"interface",
+	"let",
+	"new",
+	"null",
+	"package",
+	"private",
+	"protected",
+	"public",
+	"return",
+	"static",
+	"super",
+	"switch",
+	"this",
+	"throw",
+	"true",
+	"try",
+	"typeof",
+	"var",
+	"void",
+	"while",
+	"with",
+	"yield",
+]);
+
 /**
  * Validate if a function name is valid JavaScript identifier
  * @param {string} name - The function name to validate
  * @returns {boolean}
  */
 export function isValidFunctionName(name) {
-	// Check if it's a valid JavaScript identifier
-	return /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(name);
+	// Check if it's a valid JavaScript identifier and not a reserved word
+	return typeof name === "string" && /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(name) && !RESERVED_WORDS.has(name);
 }
 
 /**
@@ -181,8 +260,9 @@ export function extractDetailedParams(params) {
 			paramInfo.type = extractTypeAnnotation(param.typeAnnotation);
 			paramInfo.isOptional = param.optional || false;
 		} else if (param.type === "AssignmentPattern") {
-			// Handle default parameters: function(name = 'default')
-			paramInfo.name = param.left.name;
+			// Handle default parameters: function(name = 'default') or destructured
+			// patterns with defaults: function({opts} = {}), function([a, b] = [])
+			paramInfo.name = param.left.type === "Identifier" ? param.left.name : generateCode(param.left);
 			paramInfo.type = extractTypeAnnotation(param.left.typeAnnotation);
 			paramInfo.defaultValue = generateCode(param.right);
 			paramInfo.isOptional = true;
@@ -252,6 +332,12 @@ function generateCode(node) {
 				return String(node.value);
 			case "NullLiteral":
 				return "null";
+			case "ObjectExpression":
+				// Common default values like `= {}`
+				return node.properties.length === 0 ? "{}" : "object";
+			case "ArrayExpression":
+				// Common default values like `= []`
+				return node.elements.length === 0 ? "[]" : "array";
 			case "TSStringKeyword":
 				return "string";
 			case "TSNumberKeyword":

@@ -1,16 +1,19 @@
 import fs from "fs/promises";
 import path from "path";
+import { execFile } from "child_process";
+import { promisify } from "util";
 import express from "express";
 import { rollup } from "rollup";
 import { minimatch } from "minimatch";
 import esbuild from "esbuild";
 import { createRequire } from "module";
-import { fileURLToPath } from "url";
+import { createHash } from "crypto";
+import { fileURLToPath, pathToFileURL } from "url";
 import os from "os";
 import { middleware } from "./middleware.js";
-import { defaultSchemaDiscovery, createValidationMiddleware } from "./validation.js";
+import { SchemaDiscovery, createValidationMiddleware } from "./validation.js";
 import { OpenAPIGenerator, setupOpenAPIEndpoints } from "./openapi.js";
-import { generateValidationCode } from "./build-utils.js";
+import { generateValidationCode, generateMiddlewareCode } from "./build-utils.js";
 import { extractExportedFunctions, isValidFunctionName } from "./ast-parser.js";
 import { generateTypeDefinitions, generateEnhancedClientProxy } from "./type-generator.js";
 import { sanitizePath, isValidModuleName, createSecureModuleName, createErrorResponse } from "./security.js";
@@ -31,19 +34,80 @@ import {
 // Module cache moved to plugin instance to avoid cross-instance pollution
 
 /**
+ * Convert a module id to something import() accepts. Absolute paths must be
+ * imported as file:// URLs - on Windows a raw drive-letter path like
+ * C:\...\x.js is parsed as a URL scheme and throws ERR_UNSUPPORTED_ESM_URL_SCHEME.
+ * @param {string} id - Module path or bare specifier
+ * @returns {string}
+ */
+function toImportSpecifier(id) {
+	// Windows absolute paths (C:\...) must be file:// URLs for ESM import().
+	// POSIX paths are importable as-is - and staying plain keeps them
+	// resolvable by module runners that interpose on dynamic import (Vite SSR,
+	// Vitest module mocks), which cannot resolve file:// URLs.
+	return path.isAbsolute(id) && process.platform === "win32" ? pathToFileURL(id).href : id;
+}
+
+const execFileAsync = promisify(execFile);
+const SCHEMA_WORKER_PATH = fileURLToPath(new URL("./schema-discovery-worker.js", import.meta.url));
+
+/**
+ * Discover Zod schemas from server modules at build time without importing
+ * them into the build process. A disposable child process imports each module,
+ * converts every attached schema to its OpenAPI form, writes the result to a
+ * temp file, and hard-exits - so top-level side effects in user modules
+ * (DB connection pools, setInterval, listeners) cannot hang `vite build`.
+ * @param {Map} serverFunctions - Map of module names to function info
+ * @returns {Promise<Record<string, object>>} - schemaDiscovery entries keyed by "module.function"
+ */
+async function discoverSchemasAtBuildTime(serverFunctions) {
+	const modules = Array.from(serverFunctions.entries()).map(([moduleName, { id }]) => ({ moduleName, id }));
+	if (modules.length === 0) {
+		return {};
+	}
+
+	const outputFile = path.join(os.tmpdir(), `vsa-schemas-${process.pid}-${Date.now()}.json`);
+	try {
+		await execFileAsync(process.execPath, [SCHEMA_WORKER_PATH, JSON.stringify({ modules }), outputFile], {
+			timeout: 30_000,
+		});
+		const result = JSON.parse(await fs.readFile(outputFile, "utf-8"));
+		for (const warning of result.warnings || []) {
+			console.warn(`[Vite Server Actions] ${warning}`);
+		}
+		return result.schemas || {};
+	} catch (error) {
+		console.warn(
+			`[Vite Server Actions] Build-time schema discovery failed, openapi.json will use generic request bodies: ${error.message}`,
+		);
+		return {};
+	} finally {
+		await fs.unlink(outputFile).catch(() => {});
+	}
+}
+
+/**
  * Import a module, handling TypeScript files in development
  * @param {string} id - Module path
  * @param {any} viteServer - Vite dev server instance
  * @param {Map} cache - Module cache for this plugin instance
+ * @param {Map} [versions] - File change counters used to bust Node's ESM cache
  * @returns {Promise<any>} - Imported module
  */
-async function importModule(id, viteServer = null, cache = new Map()) {
-	// In production or for JS files, use regular import
-	if (process.env.NODE_ENV === "production" || !id.endsWith(".ts")) {
-		return import(id);
+async function importModule(id, viteServer = null, cache = new Map(), versions = null) {
+	const isTypeScript = id.endsWith(".ts");
+
+	// In production, use regular import. TypeScript files cannot be imported
+	// natively, so they fall through to the esbuild fallback below.
+	if (process.env.NODE_ENV === "production" && !isTypeScript) {
+		return import(toImportSpecifier(id));
 	}
 
-	// Use Vite's SSR module loader if available (preferred method)
+	// Use Vite's SSR module loader if available (preferred method for BOTH .js
+	// and .ts files): Vite's module graph invalidates an edited file AND its
+	// importers, so helper modules imported by a server file also serve fresh
+	// code after an edit, and repeated edits don't pile stale copies into
+	// Node's evict-less ESM cache.
 	if (viteServer && viteServer.ssrLoadModule) {
 		try {
 			// Clear from cache if it exists to ensure fresh load
@@ -56,8 +120,23 @@ async function importModule(id, viteServer = null, cache = new Map()) {
 			return module;
 		} catch (error) {
 			console.error(`Failed to load module ${id} via Vite SSR:`, error);
-			// Fall through to manual compilation
+			// Fall through to the fallbacks below
 		}
+	}
+
+	// Fallback for JS files without a usable dev server: Node's native import()
+	// caches modules by URL with no invalidation API. The HMR watcher bumps the
+	// file's version counter, and we import with a version query so edited files
+	// serve fresh code without a dev-server restart. Repeated imports of the
+	// same version hit Node's cache. Note: this busts only the file's own
+	// top-level code, not its imported dependencies - Vite's SSR loader above
+	// handles full dependency-graph invalidation.
+	if (!isTypeScript) {
+		const version = versions?.get(id) || 0;
+		if (version === 0) {
+			return import(toImportSpecifier(id));
+		}
+		return import(`${pathToFileURL(id).href}?v=${version}`);
 	}
 
 	// Check cache first
@@ -97,8 +176,9 @@ async function importModule(id, viteServer = null, cache = new Map()) {
 				// Add a small delay to ensure file is written
 				await new Promise((resolve) => setTimeout(resolve, 50));
 
-				// Import the compiled module with cache busting
-				const module = await import(`${tmpFile}?t=${Date.now()}`);
+				// Import the compiled module with cache busting (as a file:// URL so
+				// Windows drive-letter paths don't parse as URL schemes)
+				const module = await import(`${pathToFileURL(tmpFile).href}?t=${Date.now()}`);
 
 				// Cache the module
 				cache.set(id, module);
@@ -195,16 +275,32 @@ const DEFAULT_OPTIONS = {
 	},
 };
 
-function shouldProcessFile(filePath, options) {
+function shouldProcessFile(filePath, options, rootDir = process.cwd()) {
 	// Normalize the options to arrays
 	const includePatterns = Array.isArray(options.include) ? options.include : [options.include];
 	const excludePatterns = Array.isArray(options.exclude) ? options.exclude : [options.exclude];
 
+	// Vite supplies absolute file paths, but users naturally write project-root-relative
+	// patterns like "src/internal/**". Vite's project root can also differ from the
+	// process cwd (e.g. `vite packages/app` run from a monorepo root), so match
+	// patterns against the raw path and against paths relative to both the Vite
+	// root and the cwd.
+	const candidates = [filePath];
+	if (path.isAbsolute(filePath)) {
+		for (const base of new Set([rootDir, process.cwd()])) {
+			const relativePath = path.relative(base, filePath).replace(/\\/g, "/");
+			if (relativePath && relativePath !== filePath && !candidates.includes(relativePath)) {
+				candidates.push(relativePath);
+			}
+		}
+	}
+	const matchesPattern = (pattern) => candidates.some((candidate) => minimatch(candidate, pattern));
+
 	// Check if file matches any include pattern
-	const isIncluded = includePatterns.some((pattern) => minimatch(filePath, pattern));
+	const isIncluded = includePatterns.some(matchesPattern);
 
 	// Check if file matches any exclude pattern
-	const isExcluded = excludePatterns.length > 0 && excludePatterns.some((pattern) => minimatch(filePath, pattern));
+	const isExcluded = excludePatterns.length > 0 && excludePatterns.some(matchesPattern);
 
 	return isIncluded && !isExcluded;
 }
@@ -229,8 +325,11 @@ export default function serverActions(userOptions = {}) {
 	};
 
 	const serverFunctions = new Map();
-	const schemaDiscovery = defaultSchemaDiscovery;
+	const schemaDiscovery = new SchemaDiscovery(); // Per-instance to avoid cross-instance pollution
 	const tsModuleCache = new Map(); // Per-instance cache for TypeScript modules
+	const moduleVersions = new Map(); // Per-file change counters for busting Node's ESM cache
+	const moduleNameOwners = new Map(); // Module name -> file id; the first claimant owns the name for the whole session
+	let registeredEndpoints = new Set(); // Endpoints already registered on the dev Express app
 	let app;
 	let openAPIGenerator;
 	let validationMiddleware = null;
@@ -263,21 +362,59 @@ export default function serverActions(userOptions = {}) {
 			viteDevServer = server;
 			app = express();
 			app.use(express.json());
+			registeredEndpoints = new Set();
+
+			// User middleware mounts on the API prefix itself (not per action route) so
+			// EVERY method - including CORS OPTIONS preflights - passes through it
+			// before the action routes.
+			const userMiddleware = Array.isArray(options.middleware)
+				? options.middleware
+				: options.middleware
+					? [options.middleware]
+					: [];
+			for (const entry of userMiddleware) {
+				if (typeof entry === "string") {
+					const resolvedId = path.resolve(viteConfig?.root || process.cwd(), entry);
+					// Resolved per request through importModule (Vite's SSR loader when
+					// available) so edits to the middleware module hot-reload like server
+					// action modules do
+					app.use(options.apiPrefix, (req, res, next) => {
+						importModule(resolvedId, viteDevServer, tsModuleCache, moduleVersions)
+							.then((module) => {
+								if (typeof module.default !== "function") {
+									throw new Error(`Middleware module "${entry}" must default-export a middleware function`);
+								}
+								return module.default(req, res, next);
+							})
+							.catch(next);
+					});
+				} else if (typeof entry === "function") {
+					app.use(options.apiPrefix, entry);
+				} else if (entry != null) {
+					console.warn(`[Vite Server Actions] Ignoring middleware entry that is neither a function nor a module path`);
+				}
+			}
 
 			// Clean up on HMR
 			if (server.watcher) {
 				server.watcher.on("change", (file) => {
 					// If a server file changed, remove it from the map
-					if (shouldProcessFile(file, options)) {
-						// Clear TypeScript cache for this file
-						if (file.endsWith(".ts")) {
-							tsModuleCache.delete(file);
-						}
+					if (shouldProcessFile(file, options, viteConfig?.root)) {
+						// Bump the version counter so the next import loads fresh code
+						moduleVersions.set(file, (moduleVersions.get(file) || 0) + 1);
+
+						// Clear cached module for this file
+						tsModuleCache.delete(file);
 
 						for (const [moduleName, moduleInfo] of serverFunctions.entries()) {
 							if (moduleInfo.id === file) {
 								serverFunctions.delete(moduleName);
-								schemaDiscovery.clear(); // Clear associated schemas
+								// Clear only this module's schemas so other modules keep validating
+								for (const key of Array.from(schemaDiscovery.schemas.keys())) {
+									if (key.startsWith(`${moduleName}.`)) {
+										schemaDiscovery.schemas.delete(key);
+									}
+								}
 								console.log(`[HMR] Cleaned up server module: ${moduleName}`);
 							}
 						}
@@ -375,13 +512,13 @@ export default function serverActions(userOptions = {}) {
 			}
 
 			// Handle server file imports from client code
-			if (importer && shouldProcessFile(source, options)) {
+			if (importer && shouldProcessFile(source, options, viteConfig?.root)) {
 				const resolvedPath = path.resolve(path.dirname(importer), source);
 				return resolvedPath;
 			}
 
 			// Handle TypeScript imports from server files
-			if (importer && shouldProcessFile(importer, options)) {
+			if (importer && shouldProcessFile(importer, options, viteConfig?.root)) {
 				// Check if this is a relative import
 				if (source.startsWith(".") || source.startsWith("/")) {
 					// Try to resolve TypeScript file
@@ -412,7 +549,7 @@ export default function serverActions(userOptions = {}) {
 		},
 
 		async load(id, loadOptions) {
-			if (shouldProcessFile(id, options)) {
+			if (shouldProcessFile(id, options, viteConfig?.root)) {
 				// Check if this is an SSR request - if so, let Vite handle the actual module
 				if (loadOptions?.ssr) {
 					return null; // Let Vite handle SSR loading of the actual module
@@ -420,19 +557,63 @@ export default function serverActions(userOptions = {}) {
 				try {
 					const code = await fs.readFile(id, "utf-8");
 
-					// Sanitize the file path for security
-					const sanitizedPath = sanitizePath(id, process.cwd());
+					// Sanitize the file path for security: contain to the Vite project root,
+					// plus any directories the user explicitly lets Vite serve from
+					// (server.fs.allow covers monorepo/workspace files outside the root)
+					const rootDir = viteConfig?.root || process.cwd();
+					const allowedDirs = (viteConfig?.server?.fs?.allow || []).filter((dir) => typeof dir === "string");
+					if (viteConfig?.server?.fs?.strict === false) {
+						// fs.strict=false disables Vite's own serving restrictions - mirror that
+						// by allowing the whole filesystem root (suspicious-segment checks still apply)
+						allowedDirs.push(path.parse(path.resolve(id)).root);
+					}
+					const sanitizedPath = sanitizePath(id, rootDir, allowedDirs);
 					if (!sanitizedPath) {
 						throw new Error(`Invalid file path detected: ${id}`);
 					}
 
-					let relativePath = path.relative(process.cwd(), sanitizedPath);
+					// Relativize against the project root; files outside the root (permitted
+					// via server.fs.allow) relativize against the innermost allowed directory
+					// containing them, so module names and routes never contain ".." segments
+					let relativePath = path.relative(rootDir, sanitizedPath);
+					if (relativePath.startsWith("..")) {
+						const containingDir = allowedDirs
+							.map((dir) => path.resolve(dir))
+							.filter((dir) => sanitizedPath === dir || sanitizedPath.startsWith(dir + path.sep))
+							.sort((a, b) => b.length - a.length)[0];
+						if (containingDir) {
+							relativePath = path.relative(containingDir, sanitizedPath);
+						}
+					}
 
 					// Normalize path separators
 					relativePath = relativePath.replace(/\\/g, "/").replace(/^\//, "");
 
 					// Generate module name for internal use (must be valid identifier)
-					const moduleName = createSecureModuleName(options.moduleNameTransform(relativePath));
+					let moduleName = createSecureModuleName(options.moduleNameTransform(relativePath));
+
+					// Distinct files can normalize to the same module name (e.g. my-file.server.js
+					// and my_file.server.js both become my_file). The FIRST file to claim a name
+					// owns it for the lifetime of the plugin instance: dev endpoints capture their
+					// module name permanently at registration, so ownership must not depend on
+					// which entries currently sit in serverFunctions (the HMR watcher deletes and
+					// re-adds them in arbitrary order). Every other file gets a deterministic hash
+					// suffix derived from its relative path so it doesn't silently overwrite the
+					// owner in serverFunctions (and the production bundle).
+					const ownerId = moduleNameOwners.get(moduleName);
+					if (ownerId === undefined) {
+						moduleNameOwners.set(moduleName, id);
+					} else if (ownerId !== id) {
+						const suffix = createHash("sha256").update(relativePath).digest("hex").slice(0, 6);
+						const disambiguatedName = `${moduleName}_${suffix}`;
+						console.warn(
+							`[Vite Server Actions] Module name collision: "${relativePath}" and "${ownerId}" ` +
+								`both normalize to "${moduleName}". Using "${disambiguatedName}" for "${relativePath}". ` +
+								`Consider renaming the files or providing a custom moduleNameTransform.`,
+						);
+						moduleName = disambiguatedName;
+						moduleNameOwners.set(moduleName, id);
+					}
 
 					// Validate module name
 					if (!isValidModuleName(moduleName)) {
@@ -521,7 +702,7 @@ export default function serverActions(userOptions = {}) {
 					// Skip TypeScript files to avoid SSR loading issues
 					if (options.validation.enabled && process.env.NODE_ENV !== "production" && !id.endsWith(".ts")) {
 						try {
-							const module = await importModule(id, viteDevServer, tsModuleCache);
+							const module = await importModule(id, viteDevServer, tsModuleCache, moduleVersions);
 							schemaDiscovery.discoverFromModule(module, moduleName);
 
 							// Validate schema attachment in development
@@ -546,14 +727,9 @@ export default function serverActions(userOptions = {}) {
 
 					// Setup routes in development mode only
 					if (process.env.NODE_ENV !== "production" && app) {
-						// Normalize middleware to array (create a fresh copy to avoid mutation)
-						const middlewares = Array.isArray(options.middleware)
-							? [...options.middleware] // Create a copy
-							: options.middleware
-								? [options.middleware]
-								: [];
-
-						// Add validation middleware if enabled
+						// User middleware is mounted on the apiPrefix in configureServer (so it
+						// also sees OPTIONS preflights); only validation runs per-route here
+						const middlewares = [];
 						if (validationMiddleware) {
 							middlewares.push(validationMiddleware);
 						}
@@ -562,13 +738,33 @@ export default function serverActions(userOptions = {}) {
 							const routePath = options.routeTransform(relativePath, functionName);
 							const endpoint = `${options.apiPrefix}/${routePath}`;
 
+							// load() re-runs on every HMR invalidation, but Express routes cannot be
+							// removed. Skip endpoints that are already registered so the router stack
+							// doesn't grow with duplicate handlers on every edit.
+							if (registeredEndpoints.has(endpoint)) {
+								return;
+							}
+							registeredEndpoints.add(endpoint);
+
 							// Create a context-aware validation middleware if validation is enabled
 							const contextMiddlewares = [...middlewares];
 							if (validationMiddleware && options.validation.enabled) {
 								// Replace the generic validation middleware with a context-aware one
 								const lastIdx = contextMiddlewares.length - 1;
 								if (contextMiddlewares[lastIdx] === validationMiddleware) {
-									contextMiddlewares[lastIdx] = (req, res, next) => {
+									contextMiddlewares[lastIdx] = async (req, res, next) => {
+										// Schema discovery for TypeScript files is deferred from load()
+										// to request time; run it BEFORE validation so the first request
+										// is validated too (not just subsequent ones)
+										if (id.endsWith(".ts") && !schemaDiscovery.hasSchema(moduleName, functionName)) {
+											try {
+												const module = await importModule(id, viteDevServer, tsModuleCache, moduleVersions);
+												schemaDiscovery.discoverFromModule(module, moduleName);
+											} catch (err) {
+												console.warn(`Failed to discover schemas for ${moduleName}:`, err.message);
+											}
+										}
+
 										// Add context to request for validation
 										// Get the schema directly from schemaDiscovery
 										const schema = schemaDiscovery.getSchema(moduleName, functionName);
@@ -585,7 +781,7 @@ export default function serverActions(userOptions = {}) {
 							// Apply middleware before the handler
 							app.post(endpoint, ...contextMiddlewares, async (req, res) => {
 								try {
-									const module = await importModule(id, viteDevServer, tsModuleCache);
+									const module = await importModule(id, viteDevServer, tsModuleCache, moduleVersions);
 
 									// Lazy schema discovery for TypeScript files
 									if (
@@ -607,12 +803,19 @@ export default function serverActions(userOptions = {}) {
 
 										const enhancedError = enhanceFunctionNotFoundError(functionName, moduleName, availableFunctions);
 
-										throw new Error(enhancedError.message);
+										// Mark the error so the catch block can classify it reliably
+										// (user-thrown errors that merely contain "not found" must NOT become 404s)
+										const notFoundError = new Error(enhancedError.message);
+										notFoundError.code = "FUNCTION_NOT_FOUND";
+										notFoundError.availableFunctions = availableFunctions;
+										throw notFoundError;
 									}
 
 									// Validate request body is array for function arguments
 									if (!Array.isArray(req.body)) {
-										throw new Error("Request body must be an array of function arguments");
+										const bodyError = new Error("Request body must be an array of function arguments");
+										bodyError.code = "INVALID_REQUEST_BODY";
+										throw bodyError;
 									}
 
 									const result = await module[functionName](...req.body);
@@ -624,10 +827,8 @@ export default function serverActions(userOptions = {}) {
 								} catch (error) {
 									console.error(`Error in ${functionName}: ${error.message}`);
 
-									if (error.message.includes("not found") || error.message.includes("not a function")) {
-										// Extract available functions from the error context if available
-										const availableFunctionsMatch = error.message.match(/Available functions: ([^]+)/);
-										const availableFunctions = availableFunctionsMatch ? availableFunctionsMatch[1].split(", ") : [];
+									if (error.code === "FUNCTION_NOT_FOUND") {
+										const availableFunctions = error.availableFunctions || [];
 
 										res.status(404).json(
 											createErrorResponse(404, "Function not found", "FUNCTION_NOT_FOUND", {
@@ -637,27 +838,45 @@ export default function serverActions(userOptions = {}) {
 												suggestion: `Try one of: ${availableFunctions.join(", ") || "none available"}`,
 											}),
 										);
-									} else if (error.message.includes("Request body")) {
+									} else if (error.code === "INVALID_REQUEST_BODY") {
 										res.status(400).json(
 											createErrorResponse(400, error.message, "INVALID_REQUEST_BODY", {
 												suggestion: "Send an array of arguments: [arg1, arg2, ...]",
 											}),
 										);
 									} else {
-										res.status(500).json(
-											createErrorResponse(
-												500,
-												"Internal server error",
-												"INTERNAL_ERROR",
-												process.env.NODE_ENV !== "production"
-													? {
-															message: error.message,
-															stack: error.stack,
-															suggestion: "Check server logs for more details",
-														}
-													: { suggestion: "Contact support if this persists" },
-											),
+										// Same contract as the generated production server: user-thrown
+										// errors carry their HTTP status via err.status or err.statusCode
+										const userStatus = [error.status, error.statusCode].find(
+											(value) => Number.isInteger(value) && value >= 400 && value <= 599,
 										);
+										if (userStatus && userStatus !== 500) {
+											res
+												.status(userStatus)
+												.json(
+													createErrorResponse(
+														userStatus,
+														error.message,
+														error.code || "SERVER_ACTION_ERROR",
+														process.env.NODE_ENV !== "production" ? { stack: error.stack } : null,
+													),
+												);
+										} else {
+											res.status(500).json(
+												createErrorResponse(
+													500,
+													"Internal server error",
+													"INTERNAL_ERROR",
+													process.env.NODE_ENV !== "production"
+														? {
+																message: error.message,
+																stack: error.stack,
+																suggestion: "Check server logs for more details",
+															}
+														: { suggestion: "Contact support if this persists" },
+												),
+											);
+										}
 									}
 								}
 							});
@@ -699,13 +918,24 @@ export default function serverActions(userOptions = {}) {
 		},
 
 		async generateBundle(outputOptions, bundle) {
+			// Prepare user middleware for the production server: string entries are
+			// bundled into actions.js (default exports), embeddable functions are
+			// serialized, closure-capturing functions warn and are excluded
+			const middlewareCodegen = generateMiddlewareCode(options, viteConfig?.root || process.cwd());
+
 			// Create a virtual entry point for all server functions
 			const virtualEntryId = "virtual:server-actions-entry";
 			let virtualModuleContent = "";
 			for (const [moduleName, { id }] of serverFunctions) {
-				virtualModuleContent += `import * as ${moduleName} from '${id}';\n`;
+				// JSON.stringify the specifier so quotes/backslashes in file paths
+				// (e.g. /Users/O'Brien/... or Windows paths) don't break the generated code
+				virtualModuleContent += `import * as ${moduleName} from ${JSON.stringify(id)};\n`;
 			}
-			virtualModuleContent += `export { ${Array.from(serverFunctions.keys()).join(", ")} };`;
+			for (const { exportName, id } of middlewareCodegen.imports) {
+				virtualModuleContent += `import ${exportName} from ${JSON.stringify(id)};\n`;
+			}
+			const virtualExports = [...serverFunctions.keys(), ...middlewareCodegen.imports.map((m) => m.exportName)];
+			virtualModuleContent += `export { ${virtualExports.join(", ")} };`;
 
 			// Use Rollup to bundle the virtual module
 			const build = await rollup({
@@ -726,6 +956,38 @@ export default function serverActions(userOptions = {}) {
 					},
 					{
 						name: "typescript-transform",
+						async resolveId(source, importer) {
+							// TypeScript convention allows extensionless relative imports
+							// (import { db } from "./database"), which work in dev via
+							// Vite's ssrLoadModule. Mirror the outer resolveId's extension
+							// resolution so the production bundle resolves them too.
+							if (!importer || !source.startsWith(".")) {
+								return null;
+							}
+
+							const basePath = path.resolve(path.dirname(importer), source);
+							const possiblePaths = [
+								basePath,
+								`${basePath}.ts`,
+								`${basePath}.tsx`,
+								path.join(basePath, "index.ts"),
+								path.join(basePath, "index.tsx"),
+							];
+
+							for (const possiblePath of possiblePaths) {
+								try {
+									const stats = await fs.stat(possiblePath);
+									// Only return if it's a file, not a directory
+									if (stats.isFile()) {
+										return possiblePath;
+									}
+								} catch {
+									// File doesn't exist, try next
+								}
+							}
+
+							return null;
+						},
 						async load(id) {
 							// Handle TypeScript files
 							if (id.endsWith(".ts")) {
@@ -743,7 +1005,11 @@ export default function serverActions(userOptions = {}) {
 					{
 						name: "external-modules",
 						resolveId(source) {
-							if (!shouldProcessFile(source, options) && !source.startsWith(".") && !path.isAbsolute(source)) {
+							if (
+								!shouldProcessFile(source, options, viteConfig?.root) &&
+								!source.startsWith(".") &&
+								!path.isAbsolute(source)
+							) {
 								return { id: source, external: true };
 							}
 						},
@@ -777,6 +1043,18 @@ export default function serverActions(userOptions = {}) {
 			// Generate OpenAPI spec if enabled
 			let openAPISpec = null;
 			if (options.openAPI.enabled) {
+				// Vite sets NODE_ENV=production before load() runs during `vite build`,
+				// which skips the dev-time schema discovery. Discover schemas here so the
+				// emitted openapi.json documents the real request shapes instead of the
+				// generic fallback body. The discovery runs in a disposable child process:
+				// importing user modules in-process would execute their top-level side
+				// effects (DB pools, timers, listeners) inside the build process and could
+				// keep `vite build` from ever exiting.
+				const discovered = await discoverSchemasAtBuildTime(serverFunctions);
+				for (const [key, schema] of Object.entries(discovered)) {
+					schemaDiscovery.schemas.set(key, schema);
+				}
+
 				// Use PORT env var for production builds, defaulting to 3000
 				const port = process.env.PORT || 3000;
 				openAPISpec = openAPIGenerator.generateSpec(serverFunctions, schemaDiscovery, {
@@ -801,7 +1079,14 @@ export default function serverActions(userOptions = {}) {
         import express from 'express';
         import * as serverActions from './actions.js';
         ${options.openAPI.enabled && options.openAPI.swaggerUI ? "import swaggerUi from 'swagger-ui-express';" : ""}
-        ${options.openAPI.enabled ? "import { readFileSync } from 'fs';\nimport { fileURLToPath } from 'url';\nimport { dirname, join } from 'path';\n\nconst __filename = fileURLToPath(import.meta.url);\nconst __dirname = dirname(__filename);\nconst openAPISpec = JSON.parse(readFileSync(join(__dirname, 'openapi.json'), 'utf-8'));" : ""}
+        import { fileURLToPath } from 'url';
+        import { dirname, join } from 'path';
+        ${options.openAPI.enabled ? "import { readFileSync } from 'fs';" : ""}
+
+        // Resolve sibling files relative to this script, not the process cwd,
+        // so the server works when started from any directory (pm2, systemd, ...)
+        const __dirname = dirname(fileURLToPath(import.meta.url));
+        ${options.openAPI.enabled ? "const openAPISpec = JSON.parse(readFileSync(join(__dirname, 'openapi.json'), 'utf-8'));" : ""}
         ${validationCode.imports}
         ${validationCode.validationRuntime}
 
@@ -812,7 +1097,8 @@ export default function serverActions(userOptions = {}) {
         // Middleware
         // --------------------------------------------------
         app.use(express.json());
-        app.use(express.static('dist'));
+        ${middlewareCodegen.mountCode}
+        app.use(express.static(__dirname));
 
 				// Server functions
 				// --------------------------------------------------
@@ -825,8 +1111,18 @@ export default function serverActions(userOptions = {}) {
 									? `createContextualValidationMiddleware('${moduleName}', '${functionName}'), `
 									: "";
 								return `
-            app.post('${options.apiPrefix}/${routePath}', ${middlewareCall}async (req, res) => {
+            app.post(${JSON.stringify(`${options.apiPrefix}/${routePath}`)}, ${middlewareCall}async (req, res) => {
               try {
+                if (!Array.isArray(req.body)) {
+                  return res.status(400).json({
+                    error: true,
+                    status: 400,
+                    message: 'Request body must be an array of function arguments',
+                    code: 'INVALID_REQUEST_BODY',
+                    timestamp: new Date().toISOString(),
+                    details: { suggestion: 'Send an array of arguments: [arg1, arg2, ...]' }
+                  });
+                }
                 const result = await serverActions.${moduleName}.${functionName}(...req.body);
                 if (result === undefined) {
                   res.status(204).end();
@@ -835,14 +1131,16 @@ export default function serverActions(userOptions = {}) {
                 }
               } catch (error) {
                 console.error(\`Error in ${functionName}: \${error.message}\`);
-                const status = error.status || 500;
+                const status = [error.status, error.statusCode].find(
+                  (value) => Number.isInteger(value) && value >= 400 && value <= 599
+                ) || 500;
                 res.status(status).json({
                   error: true,
                   status,
                   message: status === 500 ? 'Internal server error' : error.message,
                   code: error.code || 'SERVER_ACTION_ERROR',
                   timestamp: new Date().toISOString(),
-                  ...(process.env.NODE_ENV !== 'production' ? { details: { message: error.message, stack: error.stack } } : {})
+                  ...(process.env.NODE_ENV === 'development' ? { details: { message: error.message, stack: error.stack } } : {})
                 });
               }
             });
@@ -942,7 +1240,7 @@ if (typeof window !== 'undefined') {
 				}
         
         try {
-          const response = await fetch('${options.apiPrefix}/${routePath}', {
+          const response = await fetch(${JSON.stringify(`${options.apiPrefix}/${routePath}`)}, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(args)
@@ -958,7 +1256,7 @@ if (typeof window !== 'undefined') {
             
             console.error("[Vite Server Actions] ❗ - Error in ${functionName}:", errorData);
             
-            const error = new Error(errorData.error || 'Server request failed');
+            const error = new Error(errorData.message || errorData.error || 'Server request failed');
             error.details = errorData.details;
             error.status = response.status;
             throw error;
@@ -993,8 +1291,8 @@ if (typeof window !== 'undefined') {
 					}
           
           // Re-throw with more context if it's not already our custom error
-          if (!error.details) {
-            const networkError = new Error(\`Failed to execute server action '\${functionName}': \${error.message}\`);
+          if (!error.status) {
+            const networkError = new Error(\`Failed to execute server action '${functionName}': \${error.message}\`);
             networkError.originalError = error;
             throw networkError;
           }
@@ -1009,5 +1307,6 @@ if (typeof window !== 'undefined') {
 
 // Export built-in middleware and validation utilities
 export { middleware };
+export { generateClientProxy };
 export { createValidationMiddleware, ValidationAdapter, ZodAdapter, SchemaDiscovery, adapters } from "./validation.js";
 export { OpenAPIGenerator, setupOpenAPIEndpoints, createSwaggerMiddleware } from "./openapi.js";

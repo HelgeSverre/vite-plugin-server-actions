@@ -43,8 +43,9 @@ const users = await getUsers(); // Just call it!
 
 ## Requirements
 
-- Node.js 18+ (Node 16 reached EOL)
-- Vite 4, 5, 6, or 7
+- Node.js 18+ to use the plugin with Vite 4–6; Vite 7 and 8 themselves require Node `^20.19 || >=22.12`
+- Vite 4–8 (peer dependency range `^4 || ^5 || ^6 || ^7 || ^8`). The automated test suite and all example apps run against Vite 8 on Node 20/22/24/26 in CI; Vite 4–7 are accepted by the peer range but not covered by automated tests
+- Validation requires zod v3 (`zod@^3`). zod 4 is not yet supported: its changed `ZodError` shape makes the generated production server return HTTP 500 instead of 400 for validation failures
 
 ## Quick Start
 
@@ -261,7 +262,8 @@ This gives you:
 ```javascript
 serverActions({
   middleware: [
-    // Add auth check to all server actions
+    // Runs for EVERY request under the API prefix (all server actions,
+    // OPTIONS preflights, and the OpenAPI spec/docs endpoints)
     (req, res, next) => {
       if (!req.headers.authorization) {
         return res.status(401).json({ error: "Unauthorized" });
@@ -271,6 +273,8 @@ serverActions({
   ],
 });
 ```
+
+Entries can also be a string path to a module (resolved relative to the Vite root) whose default export is a middleware function. See [Custom Middleware](#custom-middleware) for the full contract, including the serialization constraint for production builds.
 
 #### Custom API Routes
 
@@ -287,15 +291,15 @@ serverActions({
 
 ### All Configuration Options
 
-| Option           | Type         | Default                                | Description                    |
-| ---------------- | ------------ | -------------------------------------- | ------------------------------ |
-| `apiPrefix`      | `string`     | `"/api"`                               | URL prefix for all endpoints   |
-| `include`        | `string[]`   | `["**/*.server.js", "**/*.server.ts"]` | Files to process               |
-| `exclude`        | `string[]`   | `[]`                                   | Files to ignore                |
-| `middleware`     | `Function[]` | `[]`                                   | Express middleware stack       |
-| `routeTransform` | `Function`   | See below                              | Customize URL generation       |
-| `validation`     | `Object`     | `{ enabled: false }`                   | Validation settings            |
-| `openAPI`        | `Object`     | `{ enabled: false }`                   | OpenAPI documentation settings |
+| Option           | Type                                         | Default                                | Description                                                                                                   |
+| ---------------- | -------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `apiPrefix`      | `string`                                     | `"/api"`                               | URL prefix for all endpoints                                                                                  |
+| `include`        | `string \| string[]`                         | `["**/*.server.js", "**/*.server.ts"]` | Files to process                                                                                              |
+| `exclude`        | `string \| string[]`                         | `[]`                                   | Files to ignore                                                                                               |
+| `middleware`     | `Function \| string \| (Function\|string)[]` | `[]`                                   | Middleware mounted on the API prefix: functions or module paths (see [Custom Middleware](#custom-middleware)) |
+| `routeTransform` | `Function`                                   | See below                              | Customize URL generation                                                                                      |
+| `validation`     | `Object`                                     | `{ enabled: false }`                   | Validation settings                                                                                           |
+| `openAPI`        | `Object`                                     | `{ enabled: false }`                   | OpenAPI documentation settings                                                                                |
 
 #### Route Transform Options
 
@@ -312,12 +316,12 @@ pathUtils.createMinimalRoute; // actions/auth.server.js → /api/actions/auth.se
 
 #### Validation Options
 
-Validation is disabled by default. Enable it explicitly in your configuration.
+Validation is disabled by default. Enable it explicitly in your configuration. Schemas must be written with zod v3 (see [Requirements](#requirements)).
 
-| Option    | Type      | Default | Description                           |
-| --------- | --------- | ------- | ------------------------------------- |
-| `enabled` | `boolean` | `false` | Enable request validation             |
-| `adapter` | `string`  | `"zod"` | Validation library adapter (only zod) |
+| Option    | Type      | Default | Description                              |
+| --------- | --------- | ------- | ---------------------------------------- |
+| `enabled` | `boolean` | `false` | Enable request validation                |
+| `adapter` | `string`  | `"zod"` | Validation library adapter (only zod v3) |
 
 #### OpenAPI Options
 
@@ -343,7 +347,7 @@ Default `info` object:
 
 ### Logging Middleware
 
-Vite Server Actions includes a built-in logging middleware that provides detailed console output for debugging:
+Vite Server Actions includes a built-in logging middleware that provides detailed console output for debugging. It is development-only: because it captures its `util` import, it cannot be serialized into the generated production server and is excluded from production builds with a warning (see [the serialization constraint](#production-and-the-serialization-constraint)).
 
 ```javascript
 import serverActions, { middleware } from "vite-plugin-server-actions";
@@ -368,10 +372,10 @@ Example output:
 
 ```
 [2024-01-21T10:30:45.123Z] 🚀 Server Action Triggered
-├─ Module: src_actions_todo
+├─ Module: actions/todo
 ├─ Function: addTodo
 ├─ Method: POST
-└─ Endpoint: /api/src_actions_todo/addTodo
+└─ Endpoint: /api/actions/todo/addTodo
 
 📦 Request Body:
 {
@@ -392,12 +396,19 @@ Example output:
 
 ### Custom Middleware
 
-You can add your own Express middleware for authentication, validation, etc:
+The `middleware` option accepts a single entry or an array. Each entry is either:
+
+- an Express-style middleware function `(req, res, next)`, or
+- a string path to a module (resolved relative to the Vite root) whose default export is a middleware function.
+
+Entries run in array order, after JSON body parsing and before validation and the action handlers. Middleware is mounted on the API prefix itself (equivalent to `app.use(apiPrefix, mw)`), not on individual action routes — every request whose path starts with `apiPrefix` passes through it, regardless of HTTP method. That includes OPTIONS CORS preflights, GET requests to the OpenAPI spec/docs, and requests to unknown API paths. Entries that are neither functions nor strings are ignored with a warning in development and excluded with a warning from production builds.
+
+Note: because of Express mount-path semantics, `req.url` inside your middleware has the `apiPrefix` stripped — use `req.originalUrl` for the full path.
 
 ```javascript
 import serverActions from "vite-plugin-server-actions";
 
-// Authentication middleware
+// Authentication middleware (self-contained: works in dev AND production)
 const authMiddleware = (req, res, next) => {
   const token = req.headers.authorization;
   if (!token) {
@@ -407,22 +418,40 @@ const authMiddleware = (req, res, next) => {
   next();
 };
 
-// CORS middleware
+// CORS middleware (self-contained). Because middleware sees OPTIONS
+// preflights, it can answer them itself:
 const corsMiddleware = (req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Methods", "POST");
+  res.header("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.header("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
   next();
 };
 
 export default defineConfig({
   plugins: [
     serverActions({
-      middleware: [corsMiddleware, authMiddleware],
+      // Functions and module paths can be mixed; entries run in order
+      middleware: [corsMiddleware, authMiddleware, "./src/middleware/audit.js"],
     }),
   ],
 });
 ```
+
+#### Middleware in development
+
+String entries are re-imported on each request via the plugin's module loader (Vite's `ssrLoadModule` when available), so editing the middleware file hot-reloads it without a dev-server restart. If the module's default export is not a function, the request fails with an error passed to `next()`.
+
+#### Production and the serialization constraint
+
+`vite build` emits a standalone `dist/server.js`, and your middleware must travel into that file. User middleware is applied to ALL API-prefix requests, including OPTIONS, via `app.use('<apiPrefix>', ...)` emitted before the action routes and static file serving. Entries get there in one of two ways:
+
+- **String entries become real imports.** The module is bundled (with its local dependencies; npm packages stay external) into `dist/actions.js` under a `__vsa_middleware_N` binding and mounted from there, keeping `dist` self-contained.
+- **Function entries are serialized with `fn.toString()` and embedded verbatim — but only if they are self-contained.** The build statically analyzes each function (via `@babel/parser`): every identifier it references must be one of its own parameters/locals or a standard JS/Node global (`process`, `console`, `Buffer`, `URL`, `URLSearchParams`, `fetch`, `JSON`, `Date`, `Promise`, timers, streams, `crypto`, etc.). If a function captures anything else (imports, closure variables, module-level constants), the build emits a prominent warning naming the middleware by index and function name and listing the captured identifiers — and that middleware is EXCLUDED from the generated server rather than embedded broken. Pass a file path instead.
+
+The `authMiddleware` and `corsMiddleware` above are self-contained, so they serialize and run in production. The built-in `middleware.logging` captures its `util` import, so it works in dev but is excluded from production builds with a warning.
 
 ## ✅ Automatic Validation & Documentation
 
@@ -514,6 +543,7 @@ This generates:
 
 - `dist/server.js` - Your Express server with all endpoints
 - `dist/actions.js` - Bundled server functions
+- `dist/actions.d.ts` - Type definitions for the bundled functions
 - `dist/openapi.json` - API specification (if enabled)
 - Client assets with proxy functions
 
@@ -528,6 +558,8 @@ Or with PM2:
 ```bash
 pm2 start dist/server.js --name my-app
 ```
+
+The generated `dist/server.js` is working-directory independent: it resolves every sibling file relative to the script itself via `import.meta.url` (`const __dirname = dirname(fileURLToPath(import.meta.url))`). Static client assets are served with `express.static(__dirname)` — the `dist` directory containing `server.js` — and `openapi.json` is read from `join(__dirname, 'openapi.json')`. So `node dist/server.js`, `pm2 start dist/server.js`, systemd units, and Docker entrypoints work from ANY working directory: `index.html`, hashed assets, the API routes, `/api/openapi.json`, and `/api/docs` all serve correctly. Note: paths inside your own action code (e.g. `process.cwd()`-based data files) remain relative to whatever directory you start the server from.
 
 ### Environment Variables
 
@@ -708,7 +740,7 @@ export async function updateUser(id, data) {
 
 ## Error Handling
 
-Server errors are automatically caught and returned with proper HTTP status codes:
+Server errors are automatically caught and returned with a standard error body of the shape `{ error: true, status, message, code, timestamp, details? }` — in both the development middleware and the generated production server:
 
 ```javascript
 // server/api.server.js
@@ -716,23 +748,39 @@ export async function riskyOperation() {
   throw new Error("Something went wrong");
 }
 
-// Client receives:
-// Status: 500
-// Body: { error: "Internal server error", details: "Something went wrong" }
+// Client receives status 500 with:
+// {
+//   "error": true,
+//   "status": 500,
+//   "message": "Internal server error",
+//   "code": "INTERNAL_ERROR", // development; the generated production server sends "SERVER_ACTION_ERROR"
+//   "timestamp": "2024-01-21T10:30:45.123Z",
+//   "details": { "message": "Something went wrong", "stack": "..." } // development only
+// }
 ```
 
+An error without a usable HTTP status is deliberately opaque: HTTP 500 with message `"Internal server error"`. The `code` differs by mode: the development middleware sends `INTERNAL_ERROR`, while the generated production server sends `SERVER_ACTION_ERROR` (the fallback when the thrown error has no `code` of its own). `details` with the message/stack appears only when `NODE_ENV` is `development` — production responses omit it.
+
 ### Custom Error Responses
+
+Error-status parity (dev == prod): a server action may throw an `Error` carrying an HTTP status via `error.status` or the common Express alias `error.statusCode`. In BOTH the development middleware and the generated production server, an integer status in the 400-599 range (other than 500) is honored: the HTTP response uses that status and the standard body shape above, where `message` is the thrown error's message and `code` is the error's own `code` property when set, falling back to `"SERVER_ACTION_ERROR"`. In development the body additionally includes `details.stack`.
 
 ```javascript
 export async function authenticate(token) {
   if (!token) {
     const error = new Error("No token provided");
-    error.status = 401;
+    error.status = 401; // or the Express alias: error.statusCode = 401
+    error.code = "NO_TOKEN"; // optional, defaults to "SERVER_ACTION_ERROR"
     throw error;
   }
   // ...
 }
+
+// Client receives status 401 with:
+// { "error": true, "status": 401, "message": "No token provided", "code": "NO_TOKEN", "timestamp": "..." }
 ```
+
+Non-numeric statuses, out-of-range statuses (e.g. `302` or `999`), an explicit `500`, or no status at all keep the opaque behavior: HTTP 500 with message `"Internal server error"`. Internal classifications always take precedence over a user-set status: `FUNCTION_NOT_FOUND` → 404, `INVALID_REQUEST_BODY` → 400, and Zod `VALIDATION_ERROR` → 400. On the client, the proxy surfaces the HTTP status as `error.status` and the body's message and `details`, so custom statuses round-trip to your `catch` blocks unchanged.
 
 ## Common Patterns
 

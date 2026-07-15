@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig, type PluginOption } from "vite";
 import react from "@vitejs/plugin-react";
 import serverActions from "vite-plugin-server-actions";
 
@@ -9,7 +9,7 @@ export default defineConfig({
       validation: {
         enabled: true,
       },
-      openapi: {
+      openAPI: {
         enabled: true,
         info: {
           title: "TypeScript Analytics Demo API",
@@ -17,7 +17,9 @@ export default defineConfig({
           description: "Advanced TypeScript patterns demonstration with analytics",
         },
       },
-    }),
+      // Cast needed: the linked plugin types resolve against the root repo's
+      // copy of vite, which TS treats as a different module than this example's.
+    }) as unknown as PluginOption,
     react(),
   ],
 });

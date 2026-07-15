@@ -28,9 +28,22 @@ type ServerActionError = {
 
 `;
 
+	// TypeScript MERGES ambient module declarations that share an identical
+	// wildcard pattern, so two server files with the same basename would produce
+	// one merged declaration containing BOTH files' exports (typing every import
+	// of either file with the union of both modules' functions and masking
+	// wrong-import errors). Count each candidate wildcard pattern first so only
+	// unambiguous ones are emitted.
+	const wildcardCounts = new Map();
+	for (const moduleInfo of serverFunctions.values()) {
+		for (const pattern of wildcardPatternsForFile(moduleInfo.filePath)) {
+			wildcardCounts.set(pattern, (wildcardCounts.get(pattern) || 0) + 1);
+		}
+	}
+
 	// Generate types for each module
 	for (const [moduleName, moduleInfo] of serverFunctions) {
-		typeDefinitions += generateModuleTypes(moduleName, moduleInfo);
+		typeDefinitions += generateModuleTypes(moduleName, moduleInfo, wildcardCounts);
 	}
 
 	// Generate a global interface that combines all server actions
@@ -40,25 +53,63 @@ type ServerActionError = {
 }
 
 /**
+ * Wildcard ambient-module patterns matching the import specifiers clients may
+ * use for a server file. .server.ts files are conventionally imported without
+ * their extension ("./x.server") or with a .js extension under NodeNext
+ * resolution, so those variants are included for TypeScript files.
+ * @param {string} filePath - Relative file path
+ * @returns {string[]}
+ */
+function wildcardPatternsForFile(filePath) {
+	const fileName = filePath.split("/").pop();
+	const patterns = [`*/${fileName}`];
+	if (fileName.endsWith(".ts")) {
+		const withoutExtension = fileName.slice(0, -".ts".length);
+		patterns.push(`*/${withoutExtension}`, `*/${withoutExtension}.js`);
+	}
+	return patterns;
+}
+
+/**
  * Generate TypeScript types for a specific module
  * @param {string} moduleName - Module name
  * @param {Object} moduleInfo - Module information with functions
+ * @param {Map<string, number>} wildcardCounts - How many server files emit each wildcard pattern
  * @returns {string}
  */
-function generateModuleTypes(moduleName, moduleInfo) {
+function generateModuleTypes(moduleName, moduleInfo, wildcardCounts = new Map()) {
 	const { functions, filePath, functionDetails = [] } = moduleInfo;
 
-	let moduleTypes = `// Types for ${filePath}\n`;
-	moduleTypes += `declare module "${filePath}" {\n`;
-
+	let moduleBody = "";
 	functionDetails.forEach((func) => {
 		const signature = generateFunctionSignature(func);
 		const jsdocComment = func.jsdoc ? formatJSDocForTS(func.jsdoc) : "";
 
-		moduleTypes += `${jsdocComment}  export ${signature};\n`;
+		moduleBody += `${jsdocComment}  export ${signature};\n`;
 	});
 
+	let moduleTypes = `// Types for ${filePath}\n`;
+	moduleTypes += `declare module "${filePath}" {\n`;
+	moduleTypes += moduleBody;
 	moduleTypes += `}\n\n`;
+
+	// Ambient module declarations only match the exact import specifier, and
+	// clients import server files with relative specifiers (e.g. "./actions/todo.server.js").
+	// Relative specifiers cannot be declared ambiently (TS2436), so also emit
+	// wildcard declarations that match import paths ending in the file name -
+	// but only when the pattern is unambiguous: TypeScript merges ambient
+	// modules with identical wildcard patterns, so a pattern shared by two
+	// server files would silently union both files' exports.
+	for (const pattern of wildcardPatternsForFile(filePath)) {
+		if ((wildcardCounts.get(pattern) ?? 1) > 1) {
+			moduleTypes += `// Skipped wildcard declaration "${pattern}": multiple server files share this basename,\n`;
+			moduleTypes += `// and TypeScript would merge their ambient declarations into one module\n\n`;
+			continue;
+		}
+		moduleTypes += `declare module "${pattern}" {\n`;
+		moduleTypes += moduleBody;
+		moduleTypes += `}\n\n`;
+	}
 
 	return moduleTypes;
 }
@@ -73,7 +124,7 @@ function generateFunctionSignature(func) {
 
 	// Generate parameter list
 	const paramList = params
-		.map((param) => {
+		.map((param, index) => {
 			let paramStr = param.name;
 
 			// Add type annotation
@@ -83,8 +134,12 @@ function generateFunctionSignature(func) {
 				paramStr += `: any`; // Fallback for untyped parameters
 			}
 
+			// A required parameter cannot follow an optional one (TS1016), so only
+			// mark the parameter optional if no later parameter is required
+			const hasLaterRequiredParam = params.slice(index + 1).some((p) => !p.isOptional && !p.isRest);
+
 			// Handle optional parameters
-			if (param.isOptional && !param.name.includes("...")) {
+			if (param.isOptional && !param.name.includes("...") && !hasLaterRequiredParam) {
 				// Insert ? before the type annotation
 				paramStr = paramStr.replace(":", "?:");
 			}
@@ -124,6 +179,17 @@ function generateJavaScriptSignature(func) {
 			// For JavaScript, we only need the parameter name
 			// Optional and rest parameters are handled naturally
 
+			// Destructured parameters with a default value need a safe default in the
+			// generated signature so calling the proxy without that argument doesn't
+			// throw while destructuring undefined
+			if (param.defaultValue && !param.isRest) {
+				if (paramStr.startsWith("{")) {
+					paramStr += " = {}";
+				} else if (paramStr.startsWith("[")) {
+					paramStr += " = []";
+				}
+			}
+
 			return paramStr;
 		})
 		.join(", ");
@@ -137,31 +203,29 @@ function generateJavaScriptSignature(func) {
  * @returns {string}
  */
 function generateGlobalInterface(serverFunctions) {
+	// Emitted as a top-level ambient namespace instead of `declare global` + `export {}`:
+	// an `export {}` turns the .d.ts into a module, which silently disables all the
+	// ambient `declare module` blocks above (they would never match any import)
 	let globalInterface = `// Global server actions interface
-declare global {
-  namespace ServerActions {
+declare namespace ServerActions {
 `;
 
 	for (const [moduleName, moduleInfo] of serverFunctions) {
 		const { functionDetails = [] } = moduleInfo;
 
-		globalInterface += `    namespace ${capitalizeFirst(moduleName)} {\n`;
+		globalInterface += `  namespace ${capitalizeFirst(sanitizeNamespaceName(moduleName))} {\n`;
 
 		functionDetails.forEach((func) => {
 			const signature = generateFunctionSignature(func);
-			const jsdocComment = func.jsdoc ? formatJSDocForTS(func.jsdoc, "      ") : "";
+			const jsdocComment = func.jsdoc ? formatJSDocForTS(func.jsdoc, "    ") : "";
 
-			globalInterface += `${jsdocComment}      ${signature};\n`;
+			globalInterface += `${jsdocComment}    ${signature};\n`;
 		});
 
-		globalInterface += `    }\n`;
+		globalInterface += `  }\n`;
 	}
 
-	globalInterface += `  }
-}
-
-export {};
-`;
+	globalInterface += `}\n`;
 
 	return globalInterface;
 }
@@ -192,6 +256,17 @@ function capitalizeFirst(str) {
 }
 
 /**
+ * Sanitize a module name into a valid TypeScript namespace identifier
+ * (e.g. "2fa" -> "_2fa", "my-module" -> "my_module")
+ * @param {string} name - Module name
+ * @returns {string}
+ */
+function sanitizeNamespaceName(name) {
+	const sanitized = String(name).replace(/[^a-zA-Z0-9_$]/g, "_");
+	return /^[0-9]/.test(sanitized) ? `_${sanitized}` : sanitized;
+}
+
+/**
  * Generate enhanced client proxy with better TypeScript support
  * @param {string} moduleName - Module name
  * @param {Array} functionDetails - Detailed function information
@@ -218,15 +293,11 @@ export function generateEnhancedClientProxy(moduleName, functionDetails, options
 	// Set proxy flag at module level to prevent false security warnings
 	if (isDev) {
 		clientProxy += `
-// Development-only safety check
+// Development-only marker for client proxy module
 if (typeof window !== 'undefined') {
   // Mark that this is a legitimate proxy module
-  window.__VITE_SERVER_ACTIONS_PROXY__ = true;
-  
-  // Only warn if server code is imported outside of proxy context
-  if (!window.__VITE_SERVER_ACTIONS_PROXY__) {
-    console.warn('[Vite Server Actions] SECURITY WARNING: Server file "${moduleName}" detected in client context');
-  }
+  window.__VITE_SERVER_ACTIONS_PROXY__ = window.__VITE_SERVER_ACTIONS_PROXY__ || {};
+  window.__VITE_SERVER_ACTIONS_PROXY__['${moduleName}'] = true;
 }
 `;
 	}
@@ -307,7 +378,7 @@ export async ${jsSignature} {
 	}
   
   try {
-    const response = await fetch('${options.apiPrefix}/${routePath}', {
+    const response = await fetch(${JSON.stringify(`${options.apiPrefix}/${routePath}`)}, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(Array.from(arguments))
@@ -363,7 +434,7 @@ export async ${jsSignature} {
     
     // Re-throw with more context if it's not already our custom error
     if (!error.status) {
-      const networkError = new Error(\`Failed to execute server action '\${func.name}': \${error.message}\`);
+      const networkError = new Error(\`Failed to execute server action '${func.name}': \${error.message}\`);
       networkError.originalError = error;
       throw networkError;
     }

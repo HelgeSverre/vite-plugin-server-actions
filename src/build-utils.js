@@ -1,6 +1,8 @@
 import { createRequire } from "module";
 import { pathToFileURL } from "url";
 import fs from "fs/promises";
+import path from "path";
+import { analyzeMiddlewareSource } from "./middleware-analysis.js";
 
 /**
  * Extract schemas from server modules during build time
@@ -33,6 +35,84 @@ export async function extractSchemas(serverFunctions) {
 	}
 
 	return schemas;
+}
+
+/**
+ * Prepare user middleware for the generated production server.
+ *
+ * String entries are module paths (relative to the Vite root) whose default
+ * export is the middleware; they are bundled alongside the server actions and
+ * mounted via app.use. Function entries are embedded verbatim via
+ * fn.toString() - but only when static analysis proves they reference nothing
+ * outside their own scope and runtime globals, because a serialized function
+ * loses its defining module scope. Non-embeddable functions are excluded with
+ * a prominent build warning.
+ *
+ * @param {object} options - Plugin options (middleware, apiPrefix)
+ * @param {string} rootDir - Vite project root, used to resolve string entries
+ * @returns {{ imports: Array<{exportName: string, id: string}>, mountCode: string }}
+ */
+export function generateMiddlewareCode(options, rootDir = process.cwd()) {
+	const entries = Array.isArray(options.middleware)
+		? options.middleware
+		: options.middleware
+			? [options.middleware]
+			: [];
+	const imports = [];
+	const mounts = [];
+
+	entries.forEach((entry, index) => {
+		if (typeof entry === "string") {
+			const exportName = `__vsa_middleware_${index}`;
+			imports.push({ exportName, id: path.resolve(rootDir, entry) });
+			// Rollup only warns on a missing default export, so guard at boot with
+			// a clear error instead of letting Express fail on app.use(undefined)
+			const guardMessage = JSON.stringify(
+				`[Vite Server Actions] middleware[${index}] module "${entry}" must default-export a function.`,
+			);
+			mounts.push(
+				`if (typeof serverActions.${exportName} !== "function") { throw new Error(${guardMessage}); }`,
+				`app.use(${JSON.stringify(options.apiPrefix)}, serverActions.${exportName});`,
+			);
+			return;
+		}
+
+		if (typeof entry !== "function") {
+			console.warn(
+				`[Vite Server Actions] WARNING: middleware[${index}] is neither a function nor a module path string ` +
+					`and was EXCLUDED from the generated production server.`,
+			);
+			return;
+		}
+
+		const source = entry.toString();
+		const label = entry.name ? `middleware[${index}] ("${entry.name}")` : `middleware[${index}]`;
+		const analysis = analyzeMiddlewareSource(source);
+		if (!analysis.serializable) {
+			const reason = analysis.error || `captures non-global identifier(s): ${analysis.freeVariables.join(", ")}`;
+			console.warn(
+				`[Vite Server Actions] WARNING: ${label} ${reason}. ` +
+					`Serialized functions lose their surrounding scope, so it was EXCLUDED from the generated production server. ` +
+					`Pass a module path string (relative to the Vite root) whose default export is the middleware instead.`,
+			);
+			return;
+		}
+
+		if (analysis.globalReferences.length > 0) {
+			// fn.toString() cannot show whether these names were imports or
+			// module-scope bindings shadowing the globals in the defining module
+			console.warn(
+				`[Vite Server Actions] NOTE: ${label} references runtime global(s) ${analysis.globalReferences.join(", ")}. ` +
+					`In the generated production server these resolve to Node's built-in globals - if any of them is ` +
+					`actually an import or module-scope binding with the same name, the embedded copy will misbehave; ` +
+					`pass a module path string (relative to the Vite root) whose default export is the middleware instead.`,
+			);
+		}
+
+		mounts.push(`app.use(${JSON.stringify(options.apiPrefix)}, (${source}));`);
+	});
+
+	return { imports, mountCode: mounts.join("\n        ") };
 }
 
 /**

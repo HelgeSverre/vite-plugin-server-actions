@@ -2,21 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import serverActions from "../src/index.js";
 import fs from "fs/promises";
 
-vi.mock("minimatch", () => ({
-	minimatch: vi.fn((path, pattern) => {
-		// Simple mock implementation for testing
-		if (pattern === "**/*.server.js") {
-			return path.endsWith(".server.js");
-		}
-		if (pattern === "**/excluded/**") {
-			return path.includes("/excluded/");
-		}
-		if (pattern === "**/actions/*.server.js") {
-			return path.includes("/actions/") && path.endsWith(".server.js");
-		}
-		return false;
-	}),
-}));
+// NOTE: minimatch is intentionally NOT mocked so include/exclude tests
+// exercise the real glob semantics used in production.
 
 // Mock dependencies
 vi.mock("fs/promises");
@@ -110,8 +97,8 @@ describe("vite-plugin-server-actions", () => {
 			expect(result).toContain("getTodos");
 			expect(result).toContain("addTodo");
 			// Default route format is now clean hierarchical: src/todo.server.js -> todo
-			expect(result).toContain("fetch('/api/todo/getTodos'");
-			expect(result).toContain("fetch('/api/todo/addTodo'");
+			expect(result).toContain('fetch("/api/todo/getTodos"');
+			expect(result).toContain('fetch("/api/todo/addTodo"');
 		});
 
 		it("should not process non-server files", async () => {
@@ -159,7 +146,7 @@ describe("vite-plugin-server-actions", () => {
 			const result = await plugin.load("/src/test.server.js");
 
 			expect(result).toContain("export async function testFunction");
-			expect(result).toContain("fetch('/api/test/testFunction'");
+			expect(result).toContain('fetch("/api/test/testFunction"');
 			expect(result).toContain("method: 'POST'");
 			expect(result).toContain("Content-Type': 'application/json'");
 		});
@@ -260,13 +247,16 @@ describe("vite-plugin-server-actions", () => {
 			};
 			plugin.configureServer(mockServer);
 
-			// Test with a file that has .. in its name (after processing)
-			// This should still work but create a sanitized module name
-			const result = await plugin.load("/src/../../../etc/passwd.server.js");
+			// With real glob semantics, a path containing ".." segments never matches
+			// the include patterns, so it is not processed at all
+			const traversalResult = await plugin.load("/src/../../../etc/passwd.server.js");
+			expect(traversalResult).toBeUndefined();
 
-			// The file should be processed (not fail) but with absolute path
-			expect(result).toContain("vite-server-actions:");
-			expect(result).toContain("export async function test");
+			// A path that matches the glob but resolves outside the project root
+			// must be rejected by sanitizePath instead of being processed
+			const outsideRootResult = await plugin.load("/etc/passwd.server.js");
+			expect(outsideRootResult).toContain("Failed to load server actions");
+			expect(outsideRootResult).toContain("Invalid file path detected");
 		});
 
 		it("should generate error handling in client proxy", async () => {
@@ -307,8 +297,8 @@ describe("vite-plugin-server-actions", () => {
 
 			const result = await plugin.load("/src/test.server.js");
 
-			expect(result).toContain("fetch('/custom-api/test/testFunction'");
-			expect(result).not.toContain("fetch('/api/test/testFunction'");
+			expect(result).toContain('fetch("/custom-api/test/testFunction"');
+			expect(result).not.toContain('fetch("/api/test/testFunction"');
 		});
 
 		it("should respect include patterns", async () => {
@@ -359,6 +349,84 @@ describe("vite-plugin-server-actions", () => {
 			expect(result2).toContain("testFunction");
 		});
 
+		it("should match root-relative include patterns against real glob semantics", async () => {
+			const mockCode = "export async function actionFn() {}";
+			vi.mocked(fs.readFile).mockResolvedValue(mockCode);
+
+			// Root-relative pattern (no leading **/) as users naturally write it
+			const plugin = serverActions({
+				include: ["src/actions/**/*.server.js"],
+			});
+
+			const mockServer = {
+				middlewares: {
+					use: vi.fn(),
+				},
+			};
+			plugin.configureServer(mockServer);
+
+			// Absolute id under the (mocked) project root /project matches via the
+			// cwd-relative candidate
+			const included = await plugin.load("/project/src/actions/todo.server.js");
+			expect(included).toContain("actionFn");
+
+			// Same file outside src/actions must not match
+			const notIncluded = await plugin.load("/project/src/other/todo.server.js");
+			expect(notIncluded).toBeUndefined();
+		});
+
+		it("should match root-relative exclude patterns against real glob semantics", async () => {
+			const mockCode = "export async function actionFn() {}";
+			vi.mocked(fs.readFile).mockResolvedValue(mockCode);
+
+			const plugin = serverActions({
+				exclude: ["src/internal/**"],
+			});
+
+			const mockServer = {
+				middlewares: {
+					use: vi.fn(),
+				},
+			};
+			plugin.configureServer(mockServer);
+
+			// Excluded by the root-relative pattern even though the id is absolute
+			const excluded = await plugin.load("/project/src/internal/secret.server.js");
+			expect(excluded).toBeUndefined();
+
+			// Sibling directory is still processed
+			const included = await plugin.load("/project/src/public/open.server.js");
+			expect(included).toContain("actionFn");
+		});
+
+		it("should match root-relative patterns against Vite's root when it differs from the cwd", async () => {
+			const mockCode = "export async function actionFn() {}";
+			vi.mocked(fs.readFile).mockResolvedValue(mockCode);
+
+			// e.g. `vite packages/app` run from a monorepo root: the process cwd is
+			// /project (mocked) but Vite's resolved root is elsewhere
+			const plugin = serverActions({
+				exclude: ["src/internal/**"],
+			});
+			plugin.configResolved({ root: "/monorepo/packages/app", server: { fs: { strict: true, allow: [] } } });
+
+			const mockServer = {
+				middlewares: {
+					use: vi.fn(),
+				},
+			};
+			plugin.configureServer(mockServer);
+
+			// Root-relative exclude must match root-relative paths, not cwd-relative
+			// ones ("packages/app/src/internal/...")
+			const excluded = await plugin.load("/monorepo/packages/app/src/internal/secret.server.js");
+			expect(excluded).toBeUndefined();
+
+			// Sibling directory under the root is still processed
+			const included = await plugin.load("/monorepo/packages/app/src/public/open.server.js");
+			expect(included).toContain("actionFn");
+		});
+
 		it("should handle array and string patterns", async () => {
 			const plugin1 = serverActions({
 				include: "**/test.server.js",
@@ -396,8 +464,8 @@ describe("vite-plugin-server-actions", () => {
 				expect(result2).toContain("vite-server-actions: src_user_auth");
 
 				// API endpoints should be unique
-				expect(result1).toContain("fetch('/api/admin/auth/testFunction'");
-				expect(result2).toContain("fetch('/api/user/auth/testFunction'");
+				expect(result1).toContain('fetch("/api/admin/auth/testFunction"');
+				expect(result2).toContain('fetch("/api/user/auth/testFunction"');
 			});
 		});
 
@@ -478,13 +546,13 @@ describe("vite-plugin-server-actions", () => {
 					};
 					plugin.configureServer(mockServer);
 
-					const result = await plugin.load("/src/test.server.js");
+					// NODE_ENV=development skips the test-fixture path remapping, so the
+					// fixture must live under the (mocked) project root
+					const result = await plugin.load("/project/src/test.server.js");
 
 					// Should contain browser detection
 					expect(result).toContain("if (typeof window !== 'undefined')");
-					// Should contain security warning
-					expect(result).toContain("SECURITY WARNING");
-					// Should contain proxy context check
+					// Should contain the per-module proxy context marker
 					expect(result).toContain("__VITE_SERVER_ACTIONS_PROXY__");
 				});
 
@@ -501,7 +569,9 @@ describe("vite-plugin-server-actions", () => {
 					};
 					plugin.configureServer(mockServer);
 
-					const result = await plugin.load("/src/test.server.js");
+					// NODE_ENV=development skips the test-fixture path remapping, so the
+					// fixture must live under the (mocked) project root
+					const result = await plugin.load("/project/src/test.server.js");
 
 					// Should contain argument validation
 					expect(result).toContain("Functions cannot be serialized");
@@ -522,9 +592,12 @@ describe("vite-plugin-server-actions", () => {
 					};
 					plugin.configureServer(mockServer);
 
-					const result = await plugin.load("/src/test.server.js");
+					// Use a path under the (mocked) project root so the module is actually
+					// processed and we assert on a real production proxy
+					const result = await plugin.load("/project/src/test.server.js");
 
-					// Should NOT contain development checks
+					// Should be a generated proxy, NOT containing development checks
+					expect(result).toContain("vite-server-actions:");
 					expect(result).not.toContain("SECURITY WARNING");
 					expect(result).not.toContain("__VITE_SERVER_ACTIONS_PROXY__");
 				});

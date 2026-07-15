@@ -10,14 +10,18 @@ test.describe("OpenAPI endpoint", () => {
 		console.log("OpenAPI spec paths:", Object.keys(spec.paths || {}));
 
 		expect(spec.openapi).toBe("3.0.3");
-		expect(spec.info.title).toBe("Todo App API");
+
+		// Title varies by framework: each example configures "<Framework> Todo App API"
+		const framework = test.info().project.name;
+		const expectedTitle = `${framework.charAt(0).toUpperCase() + framework.slice(1)} Todo App API`;
+		expect(spec.info.title).toBe(expectedTitle);
 		expect(spec.paths).toBeDefined();
 
 		// Check for expected endpoints with clean routes
 		const paths = Object.keys(spec.paths || {});
 		expect(paths.length).toBeGreaterThan(0);
 
-		// With pathUtils.createCleanRoute, the paths should be:
+		// With the default clean route transform, the paths should be:
 		// src/actions/todo.server.js -> actions/todo
 		expect(spec.paths["/api/actions/todo/getTodos"]).toBeDefined();
 		expect(spec.paths["/api/actions/todo/addTodo"]).toBeDefined();

@@ -143,8 +143,11 @@ describe("Type Generator - TypeScript Support", () => {
 			const options = { moduleNameTransform: (path) => path.replace(/\.server\.(js|ts)$/, "") };
 			const typeDefs = generateTypeDefinitions(serverFunctions, options);
 
-			expect(typeDefs).toContain("declare global");
-			expect(typeDefs).toContain("namespace ServerActions");
+			// Must be a script-style ambient namespace: `declare global` requires an
+			// `export {}` which would turn the file into a module and disable the
+			// ambient `declare module` blocks
+			expect(typeDefs).toContain("declare namespace ServerActions");
+			expect(typeDefs).not.toContain("export {}");
 			expect(typeDefs).toContain("namespace Auth_module");
 			expect(typeDefs).toContain("function login(email: string, password: string): Promise<AuthResult>");
 			expect(typeDefs).toContain("function logout(): Promise<void>");

@@ -6,6 +6,17 @@ import { extendZodWithOpenApi, OpenAPIRegistry, OpenApiGeneratorV3 } from "@aste
 extendZodWithOpenApi(z);
 
 /**
+ * Resolve the value at a given issue path within the validated data
+ * (Zod 3 issues don't carry the received input, so we look it up ourselves)
+ * @param {any} data - The data that was validated
+ * @param {Array<string|number>} path - The issue path
+ * @returns {any} The value at the path, or undefined
+ */
+function getValueAtPath(data, path) {
+	return path.reduce((value, key) => (value == null ? undefined : value[key]), data);
+}
+
+/**
  * Base validation adapter interface
  */
 export class ValidationAdapter {
@@ -57,7 +68,7 @@ export class ZodAdapter extends ValidationAdapter {
 						path: err.path.join("."),
 						message: err.message,
 						code: err.code,
-						value: err.input,
+						value: err.input !== undefined ? err.input : getValueAtPath(data, err.path),
 					})),
 				};
 			}
@@ -97,8 +108,19 @@ export class ZodAdapter extends ValidationAdapter {
 			const generator = new OpenApiGeneratorV3(registry.definitions);
 			const components = generator.generateComponents();
 
+			// Collect named components generated for nested .openapi('Name') schemas
+			// so spec generators can register them under components.schemas
+			// (otherwise emitted $ref pointers would dangle)
+			const generatedSchemas = components.components?.schemas || {};
+			for (const [name, componentSchema] of Object.entries(generatedSchemas)) {
+				if (name !== schemaName) {
+					this.discoveredComponents = this.discoveredComponents || {};
+					this.discoveredComponents[name] = componentSchema;
+				}
+			}
+
 			// Extract the schema from components
-			const openAPISchema = components.components?.schemas?.[schemaName];
+			const openAPISchema = generatedSchemas[schemaName];
 
 			if (!openAPISchema) {
 				// Fallback for schemas that couldn't be converted
@@ -336,7 +358,10 @@ export function createValidationMiddleware(options = {}) {
 			schema = req.validationContext.schema;
 		} else {
 			// Fallback to URL parsing and schema discovery
-			const urlParts = req.url.split("/");
+			// Strip query string/fragment and trailing slashes so lookups
+			// like /api/todo/addTodo?trace=1 or /api/todo/addTodo/ still match
+			const pathname = req.url.split("?")[0].split("#")[0].replace(/\/+$/, "");
+			const urlParts = pathname.split("/");
 			functionName = urlParts[urlParts.length - 1];
 			moduleName = urlParts[urlParts.length - 2];
 			schema = schemaDiscovery.getSchema(moduleName, functionName);
@@ -349,15 +374,12 @@ export function createValidationMiddleware(options = {}) {
 
 		try {
 			// Request body should be an array of arguments for server functions
-			if (!Array.isArray(req.body) || req.body.length === 0) {
+			// (an empty array is valid - e.g. zero-argument functions with z.tuple([]))
+			if (!Array.isArray(req.body)) {
 				return res
 					.status(400)
 					.json(
-						createErrorResponse(
-							400,
-							"Request body must be a non-empty array of function arguments",
-							"INVALID_REQUEST_BODY",
-						),
+						createErrorResponse(400, "Request body must be an array of function arguments", "INVALID_REQUEST_BODY"),
 					);
 			}
 
@@ -383,7 +405,8 @@ export function createValidationMiddleware(options = {}) {
 			if (schema._def?.typeName === "ZodTuple") {
 				req.body = result.data;
 			} else {
-				req.body = [result.data];
+				// Only the first argument is validated - preserve any remaining arguments
+				req.body = [result.data, ...req.body.slice(1)];
 			}
 
 			next();

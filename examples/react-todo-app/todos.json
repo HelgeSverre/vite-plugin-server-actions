@@ -1,18 +1,26 @@
 [
   {
-    "id": 1766319945348,
-    "text": "Complete todo",
-    "description": "This is a detailed description of the todo item",
+    "id": 1,
+    "text": "Learn Vite Server Actions",
+    "description": "Explore how server-side functions work in Vite",
     "completed": false,
-    "priority": "low",
-    "createdAt": "2025-12-21T12:25:45.348Z"
+    "priority": "high",
+    "createdAt": "2024-01-01T10:00:00.000Z"
   },
   {
-    "id": 1766319945498,
-    "text": "Simple todo",
-    "description": null,
+    "id": 2,
+    "text": "Build a full-stack app",
+    "description": "Create a complete application with server actions",
     "completed": false,
     "priority": "medium",
-    "createdAt": "2025-12-21T12:25:45.498Z"
+    "createdAt": "2024-01-01T11:00:00.000Z"
+  },
+  {
+    "id": 3,
+    "text": "Deploy to production",
+    "description": "Deploy the application to a hosting service",
+    "completed": false,
+    "priority": "low",
+    "createdAt": "2024-01-01T12:00:00.000Z"
   }
 ]

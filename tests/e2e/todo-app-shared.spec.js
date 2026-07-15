@@ -29,8 +29,10 @@ test.describe("Todo App Integration", () => {
 			// If API cleanup fails, continue with UI cleanup
 		}
 
-		// Wait for UI to update after API cleanup
-		await page.waitForTimeout(100);
+		// Reload so the UI state reflects the API cleanup (some apps keep
+		// deleted todos rendered and error when re-deleting them via the UI)
+		await page.reload();
+		await expect(page.locator("h1")).toContainText("Todo List");
 
 		// Then clear any remaining via UI (with safer cleanup)
 		const maxDeletions = 10; // Prevent infinite loops
@@ -259,6 +261,11 @@ test.describe("File Upload and Enhanced Features", () => {
 		} catch (error) {
 			// If API cleanup fails, continue with UI cleanup
 		}
+
+		// Reload so the UI state reflects the API cleanup (some apps keep
+		// deleted todos rendered and error when re-deleting them via the UI)
+		await page.reload();
+		await expect(page.locator("h1")).toContainText("Todo List");
 
 		// Clear any remaining via UI
 		const maxDeletions = 20;

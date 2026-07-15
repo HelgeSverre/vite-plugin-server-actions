@@ -8,12 +8,16 @@ import { createValidationMiddleware } from "./validation.js";
 export function loggingMiddleware(req, res, next) {
 	const timestamp = new Date().toISOString();
 	const method = req.method;
-	const url = req.url;
+	// User middleware mounts on the apiPrefix, which strips the prefix from
+	// req.url - originalUrl preserves the full /api/... path for label parsing
+	const url = req.originalUrl || req.url;
 
-	// Extract action name from URL (format: /api/module_name/functionName)
-	const urlParts = url.split("/");
+	// Extract action name from URL (format: /api/{...modulePath}/{functionName})
+	// The module path may span multiple segments for hierarchical routes,
+	// e.g. /api/actions/todo/addTodo -> module "actions/todo", function "addTodo"
+	const urlParts = url.split("?")[0].split("/").filter(Boolean);
 	const functionName = urlParts[urlParts.length - 1];
-	const moduleName = urlParts[urlParts.length - 2];
+	const moduleName = urlParts.slice(1, -1).join("/");
 
 	// Log action trigger
 	console.log(`\n[${timestamp}] 🚀 Server Action Triggered`);

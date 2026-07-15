@@ -71,10 +71,13 @@ export interface ServerActionOptions {
 	exclude?: string | string[];
 
 	/**
-	 * Middleware to run before server action handlers
-	 * Can be a single middleware or array of middleware
+	 * Middleware mounted on the API prefix, run before validation and the
+	 * action handlers. Each entry is an Express middleware function or a
+	 * string path (resolved relative to the Vite root) to a module whose
+	 * default export is a middleware function. Accepts a single entry or an
+	 * array; entries run in array order.
 	 */
-	middleware?: RequestHandler | RequestHandler[];
+	middleware?: RequestHandler | string | Array<RequestHandler | string>;
 
 	/**
 	 * Transform function for module names (internal use)

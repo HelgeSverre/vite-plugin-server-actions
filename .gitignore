@@ -33,3 +33,6 @@ examples/*/playwright-report/
 # Example app data files (use reset:todos to restore)
 examples/*/todos.json
 examples/*/uploads/
+
+# Coverage output
+coverage/

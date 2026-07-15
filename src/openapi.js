@@ -44,6 +44,11 @@ export class OpenAPIGenerator {
 			},
 		};
 
+		// Reset components discovered by previous spec generations
+		if (this.adapter.discoveredComponents) {
+			this.adapter.discoveredComponents = {};
+		}
+
 		// Generate paths for each server function
 		for (const [moduleName, { functions, filePath }] of serverFunctions) {
 			for (const functionName of functions) {
@@ -61,6 +66,12 @@ export class OpenAPIGenerator {
 
 				spec.paths[path] = this.generatePathItem(moduleName, functionName, schema);
 			}
+		}
+
+		// Register components generated for nested .openapi('Name') schemas
+		// so $ref pointers emitted in path schemas resolve
+		if (this.adapter.discoveredComponents) {
+			Object.assign(spec.components.schemas, this.adapter.discoveredComponents);
 		}
 
 		return spec;
@@ -151,8 +162,41 @@ export class OpenAPIGenerator {
 			};
 		}
 
+		// Schemas discovered at build time arrive pre-converted to their OpenAPI
+		// form (the conversion runs in a disposable child process so user module
+		// side effects can't hang the build, and live Zod instances can't cross
+		// the process boundary)
+		if (schema.preconverted) {
+			if (schema.components && Object.keys(schema.components).length > 0) {
+				this.adapter.discoveredComponents = {
+					...(this.adapter.discoveredComponents || {}),
+					...schema.components,
+				};
+			}
+			if (schema.isTuple) {
+				return {
+					description: "Function arguments",
+					...schema.openAPISchema,
+				};
+			}
+			return {
+				type: "array",
+				description: "Function arguments",
+				items: schema.openAPISchema,
+			};
+		}
+
+		// Tuple schemas validate the whole arguments array, so their converted
+		// schema already describes the request body - don't wrap it in another array
+		if (schema._def?.typeName === "ZodTuple") {
+			return {
+				description: "Function arguments",
+				...this.adapter.toOpenAPISchema(schema),
+			};
+		}
+
 		// Server functions receive arguments as an array
-		// But if schema is defined, we assume it validates the first argument
+		// A non-tuple schema validates the first argument
 		return {
 			type: "array",
 			description: "Function arguments",
@@ -290,14 +334,15 @@ export function parseJSDocParameters(jsdoc) {
 		return [];
 	}
 
-	const paramRegex = /@param\s+\{([^}]+)\}\s+(\[?[\w.]+\]?)\s*-?\s*(.*)/g;
+	// Supports "name", "[name]" (optional) and "[name=default]" (optional with default)
+	const paramRegex = /@param\s+\{([^}]+)\}\s+(\[[\w.]+(?:=[^\]]*)?\]|[\w.]+)\s*-?\s*(.*)/g;
 	const parameters = [];
 	let match;
 
 	while ((match = paramRegex.exec(jsdoc)) !== null) {
 		const [, type, name, description] = match;
 		const isOptional = name.startsWith("[") && name.endsWith("]");
-		const paramName = name.replace(/^\[|\]$/g, "");
+		const paramName = name.replace(/^\[|\]$/g, "").split("=")[0];
 
 		parameters.push({
 			name: paramName,

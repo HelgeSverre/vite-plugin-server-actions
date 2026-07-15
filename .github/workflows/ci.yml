@@ -11,7 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [18.x, 20.x, 22.x]
+        # Vite 8 (dev toolchain) requires Node ^20.19 || >=22.12
+        node-version: [20.x, 22.x, 24.x, 26.x]
 
     steps:
       - uses: actions/checkout@v4
@@ -30,6 +31,7 @@ jobs:
           cd ../vue-todo-app && npm ci
           cd ../react-todo-app && npm ci
           cd ../react-todo-app-typescript && npm ci
+          cd ../typescript-analytics-demo && npm ci
 
       - name: Run type checking
         run: npm run typecheck

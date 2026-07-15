@@ -27,6 +27,38 @@ export class SchemaDiscovery {
 }
 
 /**
+ * Standard error response factory for production
+ * Mirrors createErrorResponse in src/security.js so production error
+ * responses match development and the OpenAPI-documented error schema
+ */
+function createErrorResponse(status, message, code = null, details = null) {
+	const error = {
+		error: true,
+		status,
+		message,
+		timestamp: new Date().toISOString(),
+	};
+
+	if (code) {
+		error.code = code;
+	}
+
+	if (details) {
+		error.details = details;
+	}
+
+	return error;
+}
+
+/**
+ * Resolve the value at a given issue path within the validated data
+ * (Zod 3 issues don't carry the received input, so we look it up ourselves)
+ */
+function getValueAtPath(data, path) {
+	return path.reduce((value, key) => (value == null ? undefined : value[key]), data);
+}
+
+/**
  * Validation middleware for production
  */
 export function createValidationMiddleware(options = {}) {
@@ -47,17 +79,20 @@ export function createValidationMiddleware(options = {}) {
 			return next();
 		}
 
+		let validationData;
+
 		try {
 			// Request body should be an array of arguments for server functions
-			if (!Array.isArray(req.body) || req.body.length === 0) {
-				return res.status(400).json({
-					error: "Validation failed",
-					message: "Request body must be a non-empty array of function arguments",
-				});
+			// (an empty array is valid - e.g. zero-argument functions with z.tuple([]))
+			if (!Array.isArray(req.body)) {
+				return res
+					.status(400)
+					.json(
+						createErrorResponse(400, "Request body must be an array of function arguments", "INVALID_REQUEST_BODY"),
+					);
 			}
 
 			// Validate based on schema type
-			let validationData;
 			if (schema._def?.typeName === "ZodTuple") {
 				// Schema expects multiple arguments (tuple)
 				validationData = req.body;
@@ -75,26 +110,38 @@ export function createValidationMiddleware(options = {}) {
 				if (schema._def?.typeName === "ZodTuple") {
 					req.body = validatedData;
 				} else {
-					req.body = [validatedData];
+					// Only the first argument is validated - preserve any remaining arguments
+					req.body = [validatedData, ...req.body.slice(1)];
 				}
 			}
 			next();
 		} catch (error) {
-			// Validation failed
 			if (error.errors) {
-				// Zod validation error
-				return res.status(400).json({
-					error: "Validation failed",
-					details: error.errors,
-					message: error.message,
-				});
+				// Zod validation error - same shape as development
+				const validationErrors = error.errors.map((err) => ({
+					path: err.path.join("."),
+					message: err.message,
+					code: err.code,
+					value: err.input !== undefined ? err.input : getValueAtPath(validationData, err.path),
+				}));
+
+				return res
+					.status(400)
+					.json(createErrorResponse(400, "Validation failed", "VALIDATION_ERROR", { validationErrors }));
 			}
 
-			// Other validation error
-			return res.status(400).json({
-				error: "Validation failed",
-				message: error.message,
-			});
+			// Other (non-Zod) error - same shape and status as development
+			console.error("Validation middleware error:", error);
+			return res
+				.status(500)
+				.json(
+					createErrorResponse(
+						500,
+						"Internal validation error",
+						"VALIDATION_INTERNAL_ERROR",
+						process.env.NODE_ENV === "development" ? { message: error.message, stack: error.stack } : null,
+					),
+				);
 		}
 	};
 }

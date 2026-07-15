@@ -1,29 +1,41 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 import serverActions from "../src/index.js";
+import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Temp dir must live inside the project root so sanitizePath containment passes.
+const tempDir = path.join(process.cwd(), "node_modules", `vsa-ts-plugin-${process.pid}-${Date.now()}`);
+
+beforeAll(async () => {
+	await fs.mkdir(tempDir, { recursive: true });
+});
+
+afterAll(async () => {
+	await fs.rm(tempDir, { recursive: true, force: true });
+});
+
 describe("TypeScript support in plugin", () => {
-	it("should process TypeScript server files", async () => {
+	it("should resolve TypeScript server file imports from client code", async () => {
 		const plugin = serverActions({
 			include: ["**/*.server.ts", "**/*.server.js"],
 		});
 
-		// Test resolveId hook
 		const resolveId = plugin.resolveId;
 		const tsFilePath = "actions/test.server.ts";
 		const importer = "/project/src/index.ts";
 
-		// The plugin only resolves if the file matches the include pattern
+		// The source matches the include patterns, so it MUST resolve relative
+		// to the importer
 		const resolved = await resolveId.call(plugin, tsFilePath, importer);
+		expect(resolved).toBe(path.resolve(path.dirname(importer), tsFilePath));
 
-		// resolveId returns the resolved path only if it matches include patterns
-		if (resolved) {
-			expect(resolved).toBe(path.resolve(path.dirname(importer), tsFilePath));
-		}
+		// Non-server imports must not be intercepted
+		const notResolved = await resolveId.call(plugin, "actions/helpers.ts", importer);
+		expect(notResolved).toBeNull();
 	});
 
 	it("should handle TypeScript files in load hook", async () => {
@@ -34,41 +46,43 @@ describe("TypeScript support in plugin", () => {
 		const load = plugin.load;
 		const tsFilePath = path.join(__dirname, "fixtures/typed.server.ts");
 
-		// The load hook should process TypeScript files
-		try {
-			const result = await load.call(plugin, tsFilePath);
+		const result = await load.call(plugin, tsFilePath);
 
-			// If successful, should return client proxy code
-			if (result && typeof result === "string") {
-				expect(result).toContain("export async function");
-				expect(result).toContain("fetch");
-			}
-		} catch (error) {
-			// TypeScript files might need compilation setup
-			console.log("Note: TypeScript file processing requires proper compilation setup");
-		}
+		// A client proxy MUST be generated for the TypeScript fixture
+		expect(typeof result).toBe("string");
+		expect(result).toContain("export async function greet");
+		expect(result).toContain("export async function calculate");
+		expect(result).toContain("fetch(");
+		expect(result).not.toContain("Failed to load server actions");
 	});
 
 	it("should support mixed JS and TS server files", async () => {
+		const jsFile = path.join(tempDir, "todo.server.js");
+		const tsFile = path.join(tempDir, "user.server.ts");
+		await fs.writeFile(jsFile, `export async function addTodo(text) { return { text }; }\n`);
+		await fs.writeFile(
+			tsFile,
+			`export async function getUser(id: number): Promise<{ id: number }> { return { id }; }\n`,
+		);
+
 		const plugin = serverActions({
 			include: ["**/*.server.js", "**/*.server.ts"],
 			routeTransform: (filePath, functionName) => {
-				// Remove extension and create route
-				const base = filePath.replace(/\.server\.(js|ts)$/, "");
+				const base = path.basename(filePath).replace(/\.server\.(js|ts)$/, "");
 				return `${base}/${functionName}`;
 			},
 		});
 
 		const load = plugin.load;
 
-		// Test JS file
-		const jsResult = await load.call(plugin, "/project/todo.server.js");
+		// Both files must yield client proxies pointing at their own routes
+		const jsResult = await load.call(plugin, jsFile);
+		expect(jsResult).toContain("export async function addTodo");
+		expect(jsResult).toContain("/api/todo/addTodo");
 
-		// Test TS file
-		const tsResult = await load.call(plugin, "/project/user.server.ts");
-
-		// Both should be processed if they exist
-		expect(typeof load).toBe("function");
+		const tsResult = await load.call(plugin, tsFile);
+		expect(tsResult).toContain("export async function getUser");
+		expect(tsResult).toContain("/api/user/getUser");
 	});
 
 	it("should validate TypeScript file patterns", () => {

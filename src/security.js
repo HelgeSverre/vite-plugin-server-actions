@@ -4,35 +4,38 @@ import path from "path";
  * Sanitize and validate file paths to prevent directory traversal attacks
  * @param {string} filePath - The file path to sanitize
  * @param {string} basePath - The base directory to restrict access to
+ * @param {string[]} [allowedPaths] - Additional directories access is allowed from
+ *   (e.g. Vite's server.fs.allow, so monorepo/workspace files outside the project
+ *   root that Vite itself legitimately serves are not rejected)
  * @returns {string|null} - Sanitized path or null if invalid
  */
-export function sanitizePath(filePath, basePath) {
+export function sanitizePath(filePath, basePath, allowedPaths = []) {
 	if (!filePath || typeof filePath !== "string") {
 		return null;
 	}
 
-	// For test environments and development with absolute paths that are already project-relative
-	if (process.env.NODE_ENV === "test" || process.env.NODE_ENV === "development") {
-		// For test paths like /src/test.server.js, treat as relative to basePath
-		if (filePath.startsWith("/src/") || filePath.startsWith("/project/")) {
-			const relativePath = filePath.startsWith("/project/") ? filePath.slice("/project/".length) : filePath.slice(1);
-			const normalizedPath = path.resolve(basePath, relativePath);
-			// Debug: console.log(`Test path resolved: ${filePath} -> ${normalizedPath}`);
-			return normalizedPath;
-		}
-		// Check if it's an absolute path outside project structure (like /etc/passwd)
-		if (path.isAbsolute(filePath)) {
-			// Debug: console.log(`Test absolute path allowed: ${filePath}`);
-			return filePath; // Allow other absolute paths in tests (for edge case tests)
-		}
+	let inputPath = filePath;
+
+	// Test-fixture affordance: synthetic absolute paths like /src/... or /project/...
+	// are treated as relative to basePath. The containment and suspicious-pattern
+	// checks below still apply to the resolved result, in every NODE_ENV.
+	if (
+		process.env.NODE_ENV === "test" &&
+		(inputPath.startsWith("/src/") || inputPath.startsWith("/project/") || inputPath.startsWith("/test/"))
+	) {
+		inputPath = inputPath.startsWith("/project/") ? inputPath.slice("/project/".length) : inputPath.slice(1);
 	}
 
 	// Normalize the paths
-	const normalizedBase = path.resolve(basePath);
-	const normalizedPath = path.resolve(basePath, filePath);
+	const normalizedPath = path.resolve(basePath, inputPath);
 
-	// Check if the resolved path is within the base directory
-	if (!normalizedPath.startsWith(normalizedBase + path.sep) && normalizedPath !== normalizedBase) {
+	// Check if the resolved path is within the base directory or any
+	// explicitly allowed directory
+	const allowedBases = [basePath, ...allowedPaths].map((base) => path.resolve(base));
+	const isContained = allowedBases.some(
+		(base) => normalizedPath === base || normalizedPath.startsWith(base + path.sep),
+	);
+	if (!isContained) {
 		console.error(`Path traversal attempt detected: ${filePath}`);
 		return null;
 	}
@@ -54,6 +57,60 @@ export function sanitizePath(filePath, basePath) {
 	return normalizedPath;
 }
 
+// Words that cannot be used as bare binding identifiers in generated ES module
+// code (import * as <name>, export { <name> }), including strict-mode reserved
+// words - module code is always strict
+const RESERVED_IDENTIFIERS = new Set([
+	"arguments",
+	"await",
+	"break",
+	"case",
+	"catch",
+	"class",
+	"const",
+	"continue",
+	"debugger",
+	"default",
+	"delete",
+	"do",
+	"else",
+	"enum",
+	"eval",
+	"export",
+	"extends",
+	"false",
+	"finally",
+	"for",
+	"function",
+	"if",
+	"implements",
+	"import",
+	"in",
+	"instanceof",
+	"interface",
+	"let",
+	"new",
+	"null",
+	"package",
+	"private",
+	"protected",
+	"public",
+	"return",
+	"static",
+	"super",
+	"switch",
+	"this",
+	"throw",
+	"true",
+	"try",
+	"typeof",
+	"var",
+	"void",
+	"while",
+	"with",
+	"yield",
+]);
+
 /**
  * Validate module name to prevent injection attacks
  * @param {string} moduleName - The module name to validate
@@ -64,10 +121,12 @@ export function isValidModuleName(moduleName) {
 		return false;
 	}
 
-	// Module name should only contain alphanumeric, underscore, and dash
-	// No dots to prevent directory traversal via module names
-	const validPattern = /^[a-zA-Z0-9_-]+$/;
-	return validPattern.test(moduleName);
+	// Module names are embedded as bare identifiers in generated code
+	// (import * as <name>, serverActions.<name>), so they must be valid,
+	// non-reserved JavaScript identifiers. No dots to prevent directory
+	// traversal via module names
+	const validPattern = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/;
+	return validPattern.test(moduleName) && !RESERVED_IDENTIFIERS.has(moduleName);
 }
 
 /**
@@ -77,12 +136,21 @@ export function isValidModuleName(moduleName) {
  */
 export function createSecureModuleName(filePath) {
 	// Remove any potentially dangerous characters
-	return filePath
+	const name = filePath
 		.replace(/[^a-zA-Z0-9_/-]/g, "_") // Replace non-alphanumeric (except slash and dash)
 		.replace(/\/+/g, "_") // Replace slashes with underscores
 		.replace(/-+/g, "_") // Replace dashes with underscores
 		.replace(/_+/g, "_") // Collapse multiple underscores
 		.replace(/^_|_$/g, ""); // Trim underscores from start/end
+
+	// The name is used as a bare identifier in generated code (import * as <name>),
+	// so prefix digit-leading names and reserved words to keep them valid JS.
+	// The user-facing URL route is derived from routeTransform, not from this name.
+	if (/^[0-9]/.test(name) || RESERVED_IDENTIFIERS.has(name)) {
+		return `_${name}`;
+	}
+
+	return name;
 }
 
 /**

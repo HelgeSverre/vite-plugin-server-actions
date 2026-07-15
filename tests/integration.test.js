@@ -15,16 +15,6 @@ vi.mock("rollup", () => ({
 	})),
 }));
 
-// Mock minimatch
-vi.mock("minimatch", () => ({
-	minimatch: vi.fn((filePath, pattern) => {
-		if (pattern === "**/*.server.js") {
-			return filePath.endsWith(".server.js");
-		}
-		return false;
-	}),
-}));
-
 // Mock process.cwd
 vi.spyOn(process, "cwd").mockReturnValue("/project");
 
@@ -501,14 +491,19 @@ describe("Integration Tests - Validation System", () => {
 			plugin.configureServer(mockServer);
 			await plugin.load("/project/src/test.server.js");
 
+			// User middleware is mounted on the API prefix (all methods, incl.
+			// OPTIONS preflights), not attached per route.
+			const prefixMounts = mockApp.use.mock.calls.filter((call) => call[0] === "/api");
+			expect(prefixMounts.map((call) => call[1])).toEqual([customMiddleware1, customMiddleware2]);
+
 			const postCall = mockApp.post.mock.calls.find((call) => call[0] === "/api/test/testFunction");
 
-			// Should have: custom middleware 1, custom middleware 2, validation middleware, handler
-			expect(postCall).toHaveLength(5);
-			expect(postCall[1]).toBe(customMiddleware1);
-			expect(postCall[2]).toBe(customMiddleware2);
-			expect(postCall[3]).toEqual(expect.any(Function)); // validation middleware
-			expect(postCall[4]).toEqual(expect.any(Function)); // main handler
+			// Route itself has only: validation middleware, handler
+			expect(postCall).toHaveLength(3);
+			expect(postCall).not.toContain(customMiddleware1);
+			expect(postCall).not.toContain(customMiddleware2);
+			expect(postCall[1]).toEqual(expect.any(Function)); // validation middleware
+			expect(postCall[2]).toEqual(expect.any(Function)); // main handler
 		});
 
 		it("should work without validation when validation is disabled", async () => {
@@ -538,12 +533,15 @@ describe("Integration Tests - Validation System", () => {
 			plugin.configureServer(mockServer);
 			await plugin.load("/project/src/test.server.js");
 
+			const prefixMounts = mockApp.use.mock.calls.filter((call) => call[0] === "/api");
+			expect(prefixMounts.map((call) => call[1])).toEqual([customMiddleware]);
+
 			const postCall = mockApp.post.mock.calls.find((call) => call[0] === "/api/test/testFunction");
 
-			// Should have: custom middleware, handler (no validation middleware)
-			expect(postCall).toHaveLength(3);
-			expect(postCall[1]).toBe(customMiddleware);
-			expect(postCall[2]).toEqual(expect.any(Function)); // main handler
+			// Route itself has only the handler (no validation middleware)
+			expect(postCall).toHaveLength(2);
+			expect(postCall).not.toContain(customMiddleware);
+			expect(postCall[1]).toEqual(expect.any(Function)); // main handler
 		});
 	});
 
@@ -843,7 +841,6 @@ describe("End-to-end validation workflow", () => {
 		const plugin = serverActions({
 			validation: {
 				enabled: true,
-				enabled: true,
 			},
 			openAPI: {
 				enabled: true,
@@ -948,5 +945,51 @@ describe("End-to-end validation workflow", () => {
 				updatedAt: expect.any(String),
 			}),
 		);
+	});
+});
+
+describe("Include/exclude glob patterns (real minimatch)", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mockExpressApp.use = vi.fn();
+		mockExpressApp.post = vi.fn();
+		mockExpressApp.get = vi.fn();
+	});
+
+	const serverCode = `
+		export async function doThing() {
+			return "ok";
+		}
+	`;
+
+	it("supports root-relative include patterns against absolute ids", async () => {
+		vi.mocked(fs.readFile).mockResolvedValue(serverCode);
+
+		const plugin = serverActions({
+			include: ["src/actions/**/*.server.js"],
+		});
+		plugin.configureServer({ middlewares: { use: vi.fn() } });
+
+		const processed = await plugin.load("/project/src/actions/todo.server.js");
+		expect(processed).toBeTruthy();
+		expect(processed).toContain("doThing");
+
+		const outside = await plugin.load("/project/src/other/misc.server.js");
+		expect(outside).toBeUndefined();
+	});
+
+	it("supports root-relative exclude patterns against absolute ids", async () => {
+		vi.mocked(fs.readFile).mockResolvedValue(serverCode);
+
+		const plugin = serverActions({
+			exclude: ["src/internal/**"],
+		});
+		plugin.configureServer({ middlewares: { use: vi.fn() } });
+
+		const excluded = await plugin.load("/project/src/internal/secret.server.js");
+		expect(excluded).toBeUndefined();
+
+		const processed = await plugin.load("/project/src/actions/todo.server.js");
+		expect(processed).toBeTruthy();
 	});
 });

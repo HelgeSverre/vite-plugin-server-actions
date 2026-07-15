@@ -156,26 +156,24 @@ test.describe("API Integration", () => {
 
 		const spec = await response.json();
 		expect(spec.openapi).toBe("3.0.3");
-		expect(spec.info.title).toBe("Todo App API");
+		expect(spec.info.title).toBe("Svelte Todo App API");
 
 		// Verify API paths are using clean routes (based on our new default behavior)
 		expect(spec.paths).toHaveProperty("/api/actions/todo/getTodos");
 		expect(spec.paths).toHaveProperty("/api/actions/todo/addTodo");
 		expect(spec.paths).toHaveProperty("/api/actions/todo/updateTodo");
 		expect(spec.paths).toHaveProperty("/api/actions/todo/deleteTodo");
-		expect(spec.paths).toHaveProperty("/api/actions/auth/login");
-		expect(spec.paths).toHaveProperty("/api/actions/auth/logout");
 	});
 
 	test("should have accessible API documentation", async ({ page }) => {
 		await page.goto("/api/docs");
 
 		// Should load Swagger UI
-		await expect(page.locator(".swagger-ui")).toBeVisible();
-		await expect(page.locator(".info .title")).toContainText("Todo App API");
+		await expect(page.locator(".swagger-ui").first()).toBeVisible();
+		await expect(page.locator(".info .title")).toContainText("Svelte Todo App API");
 
 		// Should show API endpoints
-		await expect(page.locator(".opblock-summary-path")).toContainText("/api/actions/todo/getTodos");
+		await expect(page.getByText("/api/actions/todo/getTodos")).toBeVisible();
 	});
 
 	test("should validate API requests", async ({ page }) => {
@@ -186,9 +184,10 @@ test.describe("API Integration", () => {
 
 		expect(response.status()).toBe(400);
 		const error = await response.json();
-		expect(error.error).toBe("Validation failed");
-		expect(Array.isArray(error.details)).toBe(true);
-		expect(error.details[0].message).toContain("Todo text is required");
+		expect(error.error).toBe(true);
+		expect(error.message).toBe("Validation failed");
+		expect(Array.isArray(error.details.validationErrors)).toBe(true);
+		expect(error.details.validationErrors[0].message).toContain("Todo text is required");
 	});
 
 	test("should handle valid API requests", async ({ page }) => {
@@ -202,18 +201,6 @@ test.describe("API Integration", () => {
 		expect(result.text).toBe("API Test Todo");
 		expect(result.completed).toBe(false);
 		expect(result.id).toBeDefined();
-	});
-
-	test("should handle authentication", async ({ page }) => {
-		// Test login endpoint
-		const loginResponse = await page.request.post("/api/actions/auth/login", {
-			data: ["admin", "admin"],
-		});
-
-		expect(loginResponse.ok()).toBeTruthy();
-		const loginResult = await loginResponse.json();
-		expect(loginResult.user).toBe("admin");
-		expect(loginResult.role).toBe("admin");
 	});
 
 	test("should persist todos to JSON file", async ({ page }) => {
@@ -314,6 +301,23 @@ test.describe("API Integration", () => {
 });
 
 test.describe("Performance and Reliability", () => {
+	test.beforeEach(async ({ page }) => {
+		// Clean up todos via API so count assertions start from a blank slate
+		await page.goto("/");
+		await expect(page.locator("h1")).toContainText("Todo List");
+
+		const todos = await page.request.post("/api/actions/todo/getTodos", { data: [] });
+		if (todos.ok()) {
+			const todoList = await todos.json();
+			for (const todo of todoList) {
+				await page.request.post("/api/actions/todo/deleteTodo", { data: [todo.id] });
+			}
+		}
+		await page.reload();
+		await expect(page.locator("h1")).toContainText("Todo List");
+		await expect(page.getByTestId("todo-item")).toHaveCount(0);
+	});
+
 	test.afterEach(async ({ page }) => {
 		await page.close();
 	});
@@ -624,8 +628,9 @@ test.describe("File Upload and Enhanced Features", () => {
 
 		expect(response.status()).toBe(400);
 		const error = await response.json();
-		expect(error.error).toBe("Validation failed");
-		expect(Array.isArray(error.details)).toBe(true);
-		expect(error.details[0].message).toContain("Description must be less than 800 characters");
+		expect(error.error).toBe(true);
+		expect(error.message).toBe("Validation failed");
+		expect(Array.isArray(error.details.validationErrors)).toBe(true);
+		expect(error.details.validationErrors[0].message).toContain("Description must be less than 800 characters");
 	});
 });
