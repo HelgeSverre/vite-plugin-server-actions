@@ -77,7 +77,9 @@ async function bootProductionServer(emitted, dirName, serverFileName = "server.j
 	const distDir = path.join(fixtureRoot, dirName, "dist");
 	await fs.mkdir(distDir, { recursive: true });
 	for (const [fileName, source] of Object.entries(emitted)) {
-		await fs.writeFile(path.join(distDir, fileName), source, "utf-8");
+		const targetPath = path.join(distDir, fileName);
+		await fs.mkdir(path.dirname(targetPath), { recursive: true });
+		await fs.writeFile(targetPath, source, "utf-8");
 	}
 
 	const foreignCwd = await fs.mkdtemp(path.join(os.tmpdir(), "vsa-config-cwd-"));
@@ -202,13 +204,14 @@ describe("openAPI.outputFile option", () => {
 		});
 		const emitted = await runBuild(plugin, [actionFile]);
 
-		expect(emitted["api-spec.json"]).toBeDefined();
-		expect(emitted["openapi.json"]).toBeUndefined();
-		expect(JSON.parse(emitted["api-spec.json"]).openapi).toBe("3.0.3");
+		expect(emitted[".vsa/api-spec.json"]).toBeDefined();
+		expect(emitted[".vsa/openapi.json"]).toBeUndefined();
+		expect(JSON.parse(emitted[".vsa/api-spec.json"]).openapi).toBe("3.0.3");
 
 		// CRITICAL: the generated server must read the configured filename,
 		// while the serving path (specPath) stays independent
-		expect(emitted["server.js"]).toContain(`join(__dirname, "api-spec.json")`);
+		expect(emitted["server.js"]).toContain(`.vsa`);
+		expect(emitted["server.js"]).toContain(`api-spec.json`);
 		expect(emitted["server.js"]).toContain("app.get('/api/openapi.json'");
 	});
 

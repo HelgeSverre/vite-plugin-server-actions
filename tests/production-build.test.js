@@ -269,7 +269,7 @@ describe("Production Build", () => {
 		});
 
 		it("should generate actions.js with schemas", async () => {
-			const actionsCode = await fs.readFile(path.join(todoAppDir, "dist/actions.js"), "utf-8");
+			const actionsCode = await fs.readFile(path.join(todoAppDir, "dist/.vsa/actions.js"), "utf-8");
 
 			// Zod schemas attached to functions must survive bundling so the
 			// production server can validate requests
@@ -281,7 +281,7 @@ describe("Production Build", () => {
 		});
 
 		it("should generate openapi.json with real request schemas", async () => {
-			const openAPISpec = await fs.readFile(path.join(todoAppDir, "dist/openapi.json"), "utf-8");
+			const openAPISpec = await fs.readFile(path.join(todoAppDir, "dist/.vsa/openapi.json"), "utf-8");
 			const spec = JSON.parse(openAPISpec);
 
 			expect(spec.openapi).toBe("3.0.3");

@@ -3,7 +3,6 @@ import { createServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs/promises";
-import os from "os";
 import serverActions from "../src/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -14,7 +13,8 @@ describe("TypeScript imports", () => {
 
 	beforeAll(async () => {
 		// Create a temporary directory for test files
-		tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "vite-ts-test-"));
+		// Temp dir must live inside the project root so sanitizePath containment passes.
+		tempDir = await fs.mkdtemp(path.join(process.cwd(), "node_modules", "vsa-ts-imports-"));
 
 		// Create test TypeScript files with imports
 		// types.ts - shared types

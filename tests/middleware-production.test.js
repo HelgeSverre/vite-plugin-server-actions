@@ -83,7 +83,9 @@ async function bootProductionServer(emitted, dirName) {
 	const distDir = path.join(appDir, "dist");
 	await fs.mkdir(distDir, { recursive: true });
 	for (const [fileName, source] of Object.entries(emitted)) {
-		await fs.writeFile(path.join(distDir, fileName), source, "utf-8");
+		const targetPath = path.join(distDir, fileName);
+		await fs.mkdir(path.dirname(targetPath), { recursive: true });
+		await fs.writeFile(targetPath, source, "utf-8");
 	}
 
 	const port = await getAvailablePort();
@@ -259,8 +261,8 @@ describe("production user middleware", () => {
 		const emitted = await runBuild(plugin, [actionFile]);
 
 		// The middleware module is bundled into actions.js and mounted via a real import
-		expect(emitted["actions.js"]).toContain("Access-Control-Allow-Origin");
-		expect(emitted["actions.js"]).toContain("__vsa_middleware_0");
+		expect(emitted[".vsa/actions.js"]).toContain("Access-Control-Allow-Origin");
+		expect(emitted[".vsa/actions.js"]).toContain("__vsa_middleware_0");
 		expect(emitted["server.js"]).toContain('app.use("/api", serverActions.__vsa_middleware_0);');
 
 		const port = await bootProductionServer(emitted, "cors-app");

@@ -1056,10 +1056,11 @@ export default function serverActions(userOptions = {}) {
 
 			const bundledCode = output[0].code;
 
-			// Emit the bundled server functions
+			// Emit the bundled server functions into a private subdirectory
+			// so they never share the static-serve root with client assets.
 			this.emitFile({
 				type: "asset",
-				fileName: "actions.js",
+				fileName: ".vsa/actions.js",
 				source: bundledCode,
 			});
 
@@ -1067,7 +1068,7 @@ export default function serverActions(userOptions = {}) {
 			const typeDefinitions = generateTypeDefinitions(serverFunctions, options);
 			this.emitFile({
 				type: "asset",
-				fileName: "actions.d.ts",
+				fileName: ".vsa/actions.d.ts",
 				source: typeDefinitions,
 			});
 
@@ -1094,10 +1095,10 @@ export default function serverActions(userOptions = {}) {
 					port,
 				});
 
-				// Emit OpenAPI spec as a separate file
+				// Emit OpenAPI spec inside the private subdirectory
 				this.emitFile({
 					type: "asset",
-					fileName: options.openAPI.outputFile,
+					fileName: `.vsa/${options.openAPI.outputFile}`,
 					source: JSON.stringify(openAPISpec, null, 2),
 				});
 			}
@@ -1108,16 +1109,16 @@ export default function serverActions(userOptions = {}) {
 			// Generate server.js
 			const serverCode = `
         import express from 'express';
-        import * as serverActions from './actions.js';
+        import * as serverActions from './.vsa/actions.js';
         ${options.openAPI.enabled && options.openAPI.swaggerUI ? "import swaggerUi from 'swagger-ui-express';" : ""}
         import { fileURLToPath } from 'url';
-        import { dirname, join } from 'path';
+        import * as pathModule from 'path';
         ${options.openAPI.enabled ? "import { readFileSync } from 'fs';" : ""}
 
         // Resolve sibling files relative to this script, not the process cwd,
         // so the server works when started from any directory (pm2, systemd, ...)
-        const __dirname = dirname(fileURLToPath(import.meta.url));
-        ${options.openAPI.enabled ? `const openAPISpec = JSON.parse(readFileSync(join(__dirname, ${JSON.stringify(options.openAPI.outputFile)}), 'utf-8'));` : ""}
+        const __dirname = pathModule.dirname(fileURLToPath(import.meta.url));
+        ${options.openAPI.enabled ? `const openAPISpec = JSON.parse(readFileSync(pathModule.join(__dirname, '.vsa', ${JSON.stringify(options.openAPI.outputFile)}), 'utf-8'));` : ""}
         ${validationCode.imports}
         ${validationCode.validationRuntime}
 
@@ -1129,6 +1130,42 @@ export default function serverActions(userOptions = {}) {
         // --------------------------------------------------
         app.use(express.json());
         ${middlewareCodegen.mountCode}
+
+				// Server artifacts live in a private .vsa/ subdirectory that is never
+				// exposed by express.static. A single middleware decodes the URL, resolves
+				// it against the static root (collapsing dot-segments exactly as
+				// express.static would), and 404s any path that reaches the private
+				// directory or matches the server entry-point filename. No denylist,
+				// no per-file path canonicalization — the architecture separates client
+				// and server code at the filesystem level.
+				// ------------------------------------------------------------------
+				const serverEntryBasename = ${JSON.stringify(options.serverFileName)};
+				const vsaDir = pathModule.join(__dirname, '.vsa');
+				app.use((req, res, next) => {
+					if (req.method !== 'GET' && req.method !== 'HEAD') {
+						return next();
+					}
+					let decoded;
+					try {
+						decoded = decodeURIComponent(req.path);
+					} catch {
+						return next();
+					}
+					const target = pathModule.resolve(__dirname, '.' + decoded);
+					if (
+						target.startsWith(vsaDir + pathModule.sep) ||
+						target === vsaDir
+					) {
+						return res.status(404).end();
+					}
+					if (
+						pathModule.basename(target).toLowerCase() ===
+						serverEntryBasename.toLowerCase()
+					) {
+						return res.status(404).end();
+					}
+					next();
+				});
         app.use(express.static(__dirname));
 
 				// Server functions

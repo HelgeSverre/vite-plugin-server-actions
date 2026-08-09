@@ -85,7 +85,9 @@ async function bootProductionServerFromForeignCwd(emitted, dirName) {
 	const distDir = path.join(appDir, "dist");
 	await fs.mkdir(distDir, { recursive: true });
 	for (const [fileName, source] of Object.entries(emitted)) {
-		await fs.writeFile(path.join(distDir, fileName), source, "utf-8");
+		const targetPath = path.join(distDir, fileName);
+		await fs.mkdir(path.dirname(targetPath), { recursive: true });
+		await fs.writeFile(targetPath, source, "utf-8");
 	}
 
 	const foreignCwd = await fs.mkdtemp(path.join(os.tmpdir(), "vsa-foreign-cwd-"));
@@ -174,8 +176,8 @@ describe("module names as JS identifiers", () => {
 
 		const emitted = await runBuild(plugin, [notFoundFile, classFile]);
 
-		expect(emitted["actions.js"]).toContain("notFound");
-		expect(emitted["actions.js"]).toContain("run");
+		expect(emitted[".vsa/actions.js"]).toContain("notFound");
+		expect(emitted[".vsa/actions.js"]).toContain("run");
 		expect(emitted["server.js"]).toContain("serverActions._404.notFound");
 		expect(emitted["server.js"]).toContain("serverActions._class.run");
 	});
@@ -191,7 +193,7 @@ describe("path escaping in generated code", () => {
 		const plugin = serverActions();
 		const emitted = await runBuild(plugin, [quotedFile]);
 
-		expect(emitted["actions.js"]).toContain("addTodo");
+		expect(emitted[".vsa/actions.js"]).toContain("addTodo");
 
 		// The route (which contains the quote) must be embedded as an escaped string
 		const expectedRoute = `/api/${fixtureRelative}/o'brien/todo/addTodo`;
@@ -242,8 +244,8 @@ describe("module name collisions", () => {
 		expect(warnSpy.mock.calls.some((call) => String(call[0]).includes("Module name collision"))).toBe(true);
 
 		// Both modules survive into the bundled actions and server routes
-		expect(emitted["actions.js"]).toContain("fromDash");
-		expect(emitted["actions.js"]).toContain("fromUnderscore");
+		expect(emitted[".vsa/actions.js"]).toContain("fromDash");
+		expect(emitted[".vsa/actions.js"]).toContain("fromUnderscore");
 		expect(emitted["server.js"]).toContain(JSON.stringify(`/api/${fixtureRelative}/collide/my-file/fromDash`));
 		expect(emitted["server.js"]).toContain(JSON.stringify(`/api/${fixtureRelative}/collide/my_file/fromUnderscore`));
 	});
@@ -275,7 +277,7 @@ describe("production OpenAPI schema discovery", () => {
 
 			const emitted = await runBuild(plugin, [schemaFile]);
 
-			const spec = JSON.parse(emitted["openapi.json"]);
+			const spec = JSON.parse(emitted[".vsa/openapi.json"]);
 			const pathKey = Object.keys(spec.paths).find((key) => key.endsWith("/todo/addTodo"));
 			expect(pathKey).toBeDefined();
 
@@ -319,7 +321,7 @@ describe("build-time schema discovery side-effect isolation", () => {
 			const emitted = await runBuild(plugin, [sideEffectFile]);
 
 			// Schemas were still discovered (in a disposable child process)...
-			const spec = JSON.parse(emitted["openapi.json"]);
+			const spec = JSON.parse(emitted[".vsa/openapi.json"]);
 			const pathKey = Object.keys(spec.paths).find((key) => key.endsWith("/pool/createItem"));
 			expect(pathKey).toBeDefined();
 			const requestSchema = spec.paths[pathKey].post.requestBody.content["application/json"].schema;
@@ -353,8 +355,8 @@ describe("TypeScript extensionless imports in production bundling", () => {
 		const plugin = serverActions();
 		const emitted = await runBuild(plugin, [tsServerFile]);
 
-		expect(emitted["actions.js"]).toContain("getDb");
-		expect(emitted["actions.js"]).toContain("mock-db");
+		expect(emitted[".vsa/actions.js"]).toContain("getDb");
+		expect(emitted[".vsa/actions.js"]).toContain("mock-db");
 	});
 });
 

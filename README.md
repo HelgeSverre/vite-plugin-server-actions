@@ -486,7 +486,9 @@ The server listens on `process.env.PORT`, defaulting to `3000`.
 
 The generated server shuts down gracefully on `SIGTERM` and `SIGINT`: it stops accepting new connections, lets in-flight requests finish, then exits with code 0. If draining takes longer than 10 seconds, it force-exits with code 1. This works out of the box with PM2, systemd, Docker, and Kubernetes rolling deploys.
 
-The generated `dist/server.js` is working-directory independent: it resolves every sibling file relative to the script itself via `import.meta.url` (`const __dirname = dirname(fileURLToPath(import.meta.url))`). Static client assets are served with `express.static(__dirname)` - the `dist` directory containing `server.js` - and `openapi.json` is read from `join(__dirname, 'openapi.json')`. So `node dist/server.js`, `pm2 start dist/server.js`, systemd units, and Docker entrypoints work from ANY working directory: `index.html`, hashed assets, the API routes, `/api/openapi.json`, and `/api/docs` all serve correctly. Note: paths inside your own action code (e.g. `process.cwd()`-based data files) remain relative to whatever directory you start the server from.
+The generated `dist/server.js` (or the configured `serverFileName`) is working-directory independent: it resolves every sibling file relative to the script itself via `import.meta.url` (`const __dirname = dirname(fileURLToPath(import.meta.url))`). Static client assets are served with `express.static(__dirname)` - the `dist` directory containing the generated server - and `openapi.json` is read from `join(__dirname, 'openapi.json')`. So `node dist/server.js`, `pm2 start dist/server.js`, systemd units, and Docker entrypoints work from ANY working directory: `index.html`, hashed assets, the API routes, `/api/openapi.json`, and `/api/docs` all serve correctly. Note: paths inside your own action code (e.g. `process.cwd()`-based data files) remain relative to whatever directory you start the server from.
+
+The generated server's `express.static` protection applies only when you run that server. Do not serve `dist/` directly with nginx, a CDN, or other static hosting: doing so exposes private build artifacts.
 
 ### Docker
 
@@ -759,7 +761,7 @@ Everything crossing the client/server boundary travels as JSON, so arguments and
 
 ### Security Model
 
-- **Server code isolation** - Server files (`.server.js` and `.server.ts`) are never bundled into client code; development builds include safety checks to prevent accidental imports, and production builds completely separate server and client code
+- **Server code isolation** - Server files (`.server.js` and `.server.ts`) are never bundled into client code, and development builds include safety checks to prevent accidental imports. In production, the client assets and private build artifacts are co-located in `dist/`: the configured `serverFileName` output (default `server.js`), `actions.js`, `actions.d.ts`, and (when enabled) the OpenAPI output. The generated server blocks direct static requests for those private artifacts before serving client assets, but the action bundle still exists on the server filesystem.
 - **Path containment** - Server module file paths are sanitized and contained to the Vite project root (plus Vite's explicitly allowed directories); traversal attempts are rejected
 - **Module-name sanitization** - Module names are derived from file paths and reduced to safe JavaScript identifiers (no dots, no reserved words) before being embedded in generated code
 
