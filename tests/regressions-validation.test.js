@@ -287,8 +287,8 @@ describe("zero-argument calls can pass schemas that accept them", () => {
 	});
 });
 
-describe("non-tuple schema on a multi-argument function preserves trailing arguments", () => {
-	it("validates the first argument and passes the rest through in dev", async () => {
+describe("non-tuple schemas reject trailing arguments", () => {
+	it("rejects arguments not covered by the schema in dev", async () => {
 		const discovery = new SchemaDiscovery();
 		discovery.registerSchema("todo", "updateTodo", z.number());
 		const middleware = createValidationMiddleware({ schemaDiscovery: discovery });
@@ -299,12 +299,17 @@ describe("non-tuple schema on a multi-argument function preserves trailing argum
 
 		await middleware(mockReq, mockRes, mockNext);
 
-		expect(mockRes.status).not.toHaveBeenCalled();
-		expect(mockNext).toHaveBeenCalled();
-		expect(mockReq.body).toEqual([5, "new text"]);
+		expect(mockRes.status).toHaveBeenCalledWith(400);
+		expect(mockRes.json).toHaveBeenCalledWith(
+			expect.objectContaining({
+				code: "VALIDATION_ERROR",
+				details: { validationErrors: [expect.objectContaining({ code: "too_many_arguments" })] },
+			}),
+		);
+		expect(mockNext).not.toHaveBeenCalled();
 	});
 
-	it("validates the first argument and passes the rest through in production", async () => {
+	it("rejects arguments not covered by the schema in production", async () => {
 		const middleware = createRuntimeValidationMiddleware();
 		const mockReq = {
 			body: [5, "new text"],
@@ -315,8 +320,13 @@ describe("non-tuple schema on a multi-argument function preserves trailing argum
 
 		await middleware(mockReq, mockRes, mockNext);
 
-		expect(mockRes.status).not.toHaveBeenCalled();
-		expect(mockNext).toHaveBeenCalled();
-		expect(mockReq.body).toEqual([5, "new text"]);
+		expect(mockRes.status).toHaveBeenCalledWith(400);
+		expect(mockRes.json).toHaveBeenCalledWith(
+			expect.objectContaining({
+				code: "VALIDATION_ERROR",
+				details: { validationErrors: [expect.objectContaining({ code: "too_many_arguments" })] },
+			}),
+		);
+		expect(mockNext).not.toHaveBeenCalled();
 	});
 });

@@ -110,6 +110,14 @@ describe("OpenAPIGenerator", () => {
 			expect(spec.servers).toHaveLength(1);
 			expect(spec.servers[0].url).toBe("http://localhost:8081");
 		});
+
+		it("should preserve configured server URLs", () => {
+			const servers = [{ url: "https://api.example.com", description: "Production" }];
+			const customGenerator = new OpenAPIGenerator({ servers });
+			const spec = customGenerator.generateSpec(new Map(), schemaDiscovery);
+
+			expect(spec.servers).toEqual(servers);
+		});
 	});
 
 	describe("generatePathItem", () => {

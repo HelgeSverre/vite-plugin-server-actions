@@ -257,14 +257,13 @@ describe("Production Build", () => {
 			expect(serverCode).toContain("serverActions.src_actions_todo");
 		});
 
-		it("should exclude closure-capturing middleware from the generated server", async () => {
+		it("should embed the self-contained built-in logging middleware", async () => {
 			const serverCode = await fs.readFile(path.join(todoAppDir, "dist/server.js"), "utf-8");
 
-			// The example configures middleware.logging, which captures the
-			// module-level `util` import. Serializing it would leave a dangling
-			// reference that crashes the server on the first request, so the build
-			// must exclude it (with a warning) instead of embedding it
-			expect(serverCode).not.toContain("Server Action Triggered");
+			// The built-in uses only runtime globals, so fail-closed middleware
+			// generation can preserve it without a dangling module import.
+			expect(serverCode).toContain("Server Action Triggered");
+			expect(serverCode).toContain("console.dir");
 			expect(serverCode).not.toContain("util.inspect");
 		});
 

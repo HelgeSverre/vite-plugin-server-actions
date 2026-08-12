@@ -55,6 +55,21 @@ function toImportSpecifier(id) {
 	return path.isAbsolute(id) && process.platform === "win32" ? pathToFileURL(id).href : id;
 }
 
+async function findNearestNodeModules(filePath) {
+	let directory = path.dirname(filePath);
+	while (true) {
+		const candidate = path.join(directory, "node_modules");
+		try {
+			if ((await fs.stat(candidate)).isDirectory()) return candidate;
+		} catch (error) {
+			if (error.code !== "ENOENT") throw error;
+		}
+		const parent = path.dirname(directory);
+		if (parent === directory) return null;
+		directory = parent;
+	}
+}
+
 const execFileAsync = promisify(execFile);
 const SCHEMA_WORKER_PATH = fileURLToPath(new URL("./schema-discovery-worker.js", import.meta.url));
 
@@ -159,28 +174,33 @@ async function importModule(id, viteServer = null, cache = new Map(), versions =
 
 	while (retryCount < maxRetries) {
 		try {
-			// Read and transform TypeScript file
-			const tsCode = await fs.readFile(id, "utf-8");
-
-			// Transform imports to be relative to the original file location
-			const result = await esbuild.transform(tsCode, {
-				loader: "ts",
+			// Bundle into a private OS temporary directory. Writing transformed
+			// source beside the action made it reachable through an exposed Vite
+			// source root during the import window.
+			const result = await esbuild.build({
+				entryPoints: [id],
+				bundle: true,
+				platform: "node",
 				target: "node16",
 				format: "esm",
-				sourcefile: id,
-				sourcemap: "inline",
+				sourcemap: false,
+				packages: "external",
+				write: false,
 			});
-
-			// Create a temporary file in the same directory as the original
-			// This ensures relative imports work correctly
-			const dir = path.dirname(id);
-			const basename = path.basename(id, ".ts");
-			const tmpFile = path.join(dir, `.${basename}.tmp.mjs`);
-
-			// Write compiled JavaScript
-			await fs.writeFile(tmpFile, result.code, "utf-8");
+			const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "vsa-module-"));
+			const tmpFile = path.join(tmpDir, "action.mjs");
 
 			try {
+				const nodeModules = await findNearestNodeModules(id);
+				if (nodeModules) {
+					await fs.symlink(
+						nodeModules,
+						path.join(tmpDir, "node_modules"),
+						process.platform === "win32" ? "junction" : "dir",
+					);
+				}
+				await fs.writeFile(tmpFile, result.outputFiles[0].text, "utf-8");
+
 				// Add a small delay to ensure file is written
 				await new Promise((resolve) => setTimeout(resolve, 50));
 
@@ -191,14 +211,9 @@ async function importModule(id, viteServer = null, cache = new Map(), versions =
 				// Cache the module
 				cache.set(id, module);
 
-				// Clean up temp file immediately
-				await fs.unlink(tmpFile).catch(() => {});
-
 				return module;
-			} catch (importError) {
-				// Clean up on error
-				await fs.unlink(tmpFile).catch(() => {});
-				throw importError;
+			} finally {
+				await fs.rm(tmpDir, { recursive: true, force: true });
 			}
 		} catch (error) {
 			retryCount++;
@@ -1151,11 +1166,14 @@ export default function serverActions(userOptions = {}) {
 					} catch {
 						return next();
 					}
-					const target = pathModule.resolve(__dirname, '.' + decoded);
-					if (
-						target.startsWith(vsaDir + pathModule.sep) ||
-						target === vsaDir
-					) {
+				const target = pathModule.resolve(__dirname, '.' + decoded);
+				const relativeTarget = pathModule.relative(__dirname, target);
+				const firstTargetSegment = relativeTarget.split(pathModule.sep)[0];
+				if (
+					target.startsWith(vsaDir + pathModule.sep) ||
+					target === vsaDir ||
+					firstTargetSegment.toLowerCase() === '.vsa'
+				) {
 						return res.status(404).end();
 					}
 					if (

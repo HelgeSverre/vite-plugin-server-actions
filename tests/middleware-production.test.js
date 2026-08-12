@@ -207,9 +207,7 @@ describe("production user middleware", () => {
 		expect(await allowed.json()).toEqual({ user: "helge" });
 	}, 30000);
 
-	it("warns about and excludes middleware that captures non-global scope", async () => {
-		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-
+	it("fails the build when middleware captures non-global scope", async () => {
 		const actionFile = await writeFixture(
 			"closure-app/data.server.js",
 			"export async function getData() {\n\treturn [];\n}\n",
@@ -222,19 +220,9 @@ describe("production user middleware", () => {
 		};
 
 		const plugin = serverActions({ routeTransform, middleware: [closureMiddleware] });
-		const emitted = await runBuild(plugin, [actionFile]);
-
-		// A prominent warning names the middleware and the captured identifier,
-		// and tells the user to pass a file path instead
-		const warning = warnSpy.mock.calls.map((call) => String(call[0])).find((msg) => msg.includes("EXCLUDED"));
-		expect(warning).toBeDefined();
-		expect(warning).toContain("middleware[0]");
-		expect(warning).toContain("secret");
-		expect(warning).toContain("module path");
-
-		// The middleware is NOT embedded, but the routes still are
-		expect(emitted["server.js"]).not.toContain("req.auth = secret");
-		expect(emitted["server.js"]).toContain('app.post("/api/data/getData"');
+		await expect(runBuild(plugin, [actionFile])).rejects.toThrow(
+			/middleware\[0\].*secret.*build was stopped.*module path/s,
+		);
 	});
 
 	it("bundles string-path middleware and mounts it in the generated server", async () => {

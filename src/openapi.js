@@ -25,14 +25,16 @@ export class OpenAPIGenerator {
 	 * @returns {object} Complete OpenAPI 3.0 specification
 	 */
 	generateSpec(serverFunctions, schemaDiscovery, options = {}) {
-		// Always use dynamic port if provided, otherwise fallback to environment or default
+		const configuredServers = options.servers || this.servers;
 		const port = options.port || process.env.PORT || 3000;
-		const servers = [
-			{
-				url: `http://localhost:${port}`,
-				description: options.port ? "Development server" : "Server",
-			},
-		];
+		const servers = configuredServers.length
+			? configuredServers
+			: [
+					{
+						url: `http://localhost:${port}`,
+						description: options.port ? "Development server" : "Server",
+					},
+				];
 
 		const spec = {
 			openapi: "3.0.3",
@@ -196,7 +198,7 @@ export class OpenAPIGenerator {
 		}
 
 		// Server functions receive arguments as an array
-		// A non-tuple schema validates the first argument
+		// A non-tuple schema validates exactly one argument
 		return {
 			type: "array",
 			description: "Function arguments",

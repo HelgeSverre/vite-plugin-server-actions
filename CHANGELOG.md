@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-08-12
+
+### Security
+
+- Block mixed-case aliases of the private `.vsa` directory on case-insensitive filesystems.
+- Fail production builds instead of silently dropping middleware that cannot be serialized safely.
+- Reject trailing action arguments not covered by a non-tuple validation schema; multi-argument actions must use tuple schemas.
+- Strip server-action JSDoc from browser-facing proxy modules.
+
+### Changed
+
+- The built-in logging middleware is now self-contained and runs in generated production servers.
+
 ## [1.3.1] - 2026-07-15
 
 Package-manager compatibility fixes, verified by running the full suite (435 unit + 103 e2e tests) from pristine installs with npm, yarn, pnpm, and bun in a clean container.

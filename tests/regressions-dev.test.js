@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeAll, afterAll, afterEach } from "vitest";
 import fs from "fs/promises";
 import http from "http";
+import os from "os";
 import path from "path";
 import serverActions from "../src/index.js";
 import { sanitizePath } from "../src/security.js";
@@ -211,6 +212,7 @@ createUser.schema = z.object({ role: z.literal("user") });
 `,
 			);
 
+			const writeSpy = vi.spyOn(fs, "writeFile");
 			const plugin = serverActions({ routeTransform, validation: { enabled: true } });
 			const { server, captured } = createMockViteServer();
 			plugin.configureServer(server);
@@ -227,6 +229,36 @@ createUser.schema = z.object({ role: z.literal("user") });
 			const valid = await postJSON(port, "/api/guard/createUser", [{ role: "user" }]);
 			expect(valid.status).toBe(200);
 			expect(valid.data).toBe("created");
+
+			const generatedModulePaths = writeSpy.mock.calls
+				.map(([target]) => String(target))
+				.filter((target) => target.endsWith(".mjs"));
+			expect(generatedModulePaths.some((target) => target.startsWith(os.tmpdir()))).toBe(true);
+			expect(generatedModulePaths.some((target) => path.dirname(target) === tempDir)).toBe(false);
+		});
+
+		it("loads CommonJS packages from the private fallback module", async () => {
+			const filePath = path.join(tempDir, "commonjs.server.ts");
+			await fs.writeFile(
+				filePath,
+				`import express from "express";
+export async function getDependencyType(): Promise<string> {
+  return typeof express;
+}
+`,
+			);
+
+			const plugin = serverActions({ routeTransform });
+			const { server, captured } = createMockViteServer();
+			plugin.configureServer(server);
+			await plugin.load(filePath);
+
+			const port = await startServer(captured.app);
+			const response = await postJSON(port, "/api/commonjs/getDependencyType", []);
+
+			expect(response.status).toBe(200);
+			expect(response.data).toBe("function");
+			expect(await fs.stat(path.join(tempDir, ".commonjs.server.tmp.mjs")).catch(() => null)).toBeNull();
 		});
 	});
 

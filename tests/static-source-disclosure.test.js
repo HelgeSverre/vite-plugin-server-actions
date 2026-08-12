@@ -199,6 +199,9 @@ describe("Static source disclosure (private production artifacts)", () => {
 			"/assets//..//actions.js", // repeated internal separators
 			// .vsa directory traversal — must not serve anything inside the private dir
 			"/.vsa/actions.js",
+			"/.VSA/actions.js", // case-insensitive filesystem alias
+			"/.VsA/actions.js", // mixed-case private directory alias
+			"/%2eVSA/actions.js", // encoded dot with case variant
 			"/.vsa/actions.d.ts",
 			"/.vsa/openapi.json",
 			"/assets/../.vsa/actions.js", // literal traversal into .vsa

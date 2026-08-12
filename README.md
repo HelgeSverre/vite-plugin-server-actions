@@ -146,6 +146,8 @@ serverActions({
 });
 ```
 
+A non-tuple schema covers exactly one action argument. Requests containing additional arguments are rejected. Use `z.tuple([firstSchema, secondSchema, ...])` for every multi-argument action so the complete argument vector is validated.
+
 Then attach a schema to a function:
 
 ```javascript
@@ -282,9 +284,9 @@ String entries are re-imported on each request via the plugin's module loader (V
 `vite build` emits a standalone `dist/server.js`, and your middleware must travel into that file. User middleware is applied to ALL API-prefix requests, including OPTIONS, via `app.use('<apiPrefix>', ...)` emitted before the action routes and static file serving. Entries get there in one of two ways:
 
 - **String entries become real imports.** The module is bundled (with its local dependencies; npm packages stay external) into `dist/actions.js` under a `__vsa_middleware_N` binding and mounted from there, keeping `dist` self-contained.
-- **Function entries are serialized with `fn.toString()` and embedded verbatim - but only if they are self-contained.** The build statically analyzes each function (via `@babel/parser`): every identifier it references must be one of its own parameters/locals or a standard JS/Node global (`process`, `console`, `Buffer`, `URL`, `URLSearchParams`, `fetch`, `JSON`, `Date`, `Promise`, timers, streams, `crypto`, etc.). If a function captures anything else (imports, closure variables, module-level constants), the build emits a prominent warning naming the middleware by index and function name and listing the captured identifiers - and that middleware is EXCLUDED from the generated server rather than embedded broken. Pass a file path instead.
+- **Function entries are serialized with `fn.toString()` and embedded verbatim - but only if they are self-contained.** The build statically analyzes each function (via `@babel/parser`): every identifier it references must be one of its own parameters/locals or a standard JS/Node global (`process`, `console`, `Buffer`, `URL`, `URLSearchParams`, `fetch`, `JSON`, `Date`, `Promise`, timers, streams, `crypto`, etc.). If a function captures anything else (imports, closure variables, module-level constants), the production build fails and names the middleware and captured identifiers. Failing closed prevents authentication or authorization middleware from silently disappearing. Pass a file path instead.
 
-The `authMiddleware` and `corsMiddleware` above are self-contained, so they serialize and run in production. The built-in `middleware.logging` captures its `util` import, so it works in dev but is excluded from production builds with a warning.
+The `authMiddleware`, `corsMiddleware`, and built-in `middleware.logging` are self-contained, so they serialize and run in production.
 
 ### Rate Limiting
 
@@ -329,11 +331,11 @@ serverActions({
 });
 ```
 
-Use the file-path form here, not an inline function. The limiter holds its state (the `hits` Map) in module scope, so it is NOT self-contained: serializing the function with `toString()` would leave `hits` as a dangling reference, and the build would exclude it from the production server with a warning. As a file path, the module is bundled whole into `dist/actions.js` - state and all - so the same limiter runs in development and production.
+Use the file-path form here, not an inline function. The limiter holds its state (the `hits` Map) in module scope, so it is NOT self-contained: serializing the function with `toString()` would leave `hits` as a dangling reference, and the production build therefore fails. As a file path, the module is bundled whole into `dist/.vsa/actions.js` - state and all - so the same limiter runs in development and production.
 
 ### Built-in Logging Middleware
 
-Vite Server Actions includes a built-in logging middleware that provides detailed console output for debugging. It is development-only: because it captures its `util` import, it cannot be serialized into the generated production server and is excluded from production builds with a warning (see [the serialization constraint](#production-and-the-serialization-constraint)).
+Vite Server Actions includes a self-contained logging middleware that provides detailed console output in development and production (see [the serialization constraint](#production-and-the-serialization-constraint)).
 
 ```javascript
 import serverActions, { middleware } from "vite-plugin-server-actions";
@@ -432,7 +434,7 @@ addTodo.schema = z.tuple([AddTodoSchema]);
 
 ### Type Definitions
 
-TypeScript types flow through to the generated client: a `dist/actions.d.ts` with ambient module declarations is emitted at build time, and in development your editor resolves types directly from the `.server.ts` source. API documentation (OpenAPI spec and Swagger UI) is generated from [Zod schemas](#validation-with-zod), not from TypeScript types or JSDoc.
+TypeScript types flow through to the generated client: a private `dist/.vsa/actions.d.ts` with ambient module declarations is emitted at build time, and in development your editor resolves types directly from the `.server.ts` source. Server-action JSDoc is intentionally stripped from browser proxy modules; keep secrets out of comments regardless. API documentation (OpenAPI spec and Swagger UI) is generated from [Zod schemas](#validation-with-zod), not from TypeScript types or JSDoc.
 
 ## Routing
 
@@ -644,7 +646,7 @@ readAllowedFile.schema = FileSchema;
 | `validation`     | `Object`                                     | `{ enabled: false }`                   | Validation settings                                                                             |
 | `openAPI`        | `Object`                                     | `{ enabled: false }`                   | OpenAPI documentation settings                                                                  |
 
-`silent: true` suppresses the plugin's own dev/build-time chatter: the dev startup feedback banner, HMR cleanup logs, endpoint/schema discovery messages, and advisory warnings (non-async function hints, module-name collisions, schema discovery fallbacks). Errors always print. Warnings about middleware being **excluded** from the production build are routed through Rollup's build warning path, so they remain visible during `vite build` even with `silent: true` - dropping code from the build should never be invisible. The generated production server's own runtime logging is unaffected by this option.
+`silent: true` suppresses the plugin's own dev/build-time chatter: the dev startup feedback banner, HMR cleanup logs, endpoint/schema discovery messages, and advisory warnings (non-async function hints, module-name collisions, schema discovery fallbacks). Errors always print. Middleware that cannot be preserved stops the production build regardless of `silent`. The generated production server's own runtime logging is unaffected by this option.
 
 ### Validation Options
 

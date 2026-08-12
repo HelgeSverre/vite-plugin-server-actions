@@ -1,4 +1,3 @@
-import util from "util";
 import { createValidationMiddleware } from "./validation.js";
 
 /**
@@ -29,14 +28,7 @@ export function loggingMiddleware(req, res, next) {
 	// Log request body with syntax highlighting
 	if (req.body && Object.keys(req.body).length > 0) {
 		console.log("\n📦 Request Body:");
-		// Use util.inspect for colored output
-		console.log(
-			util.inspect(req.body, {
-				colors: true,
-				depth: null,
-				compact: false,
-			}),
-		);
+		console.dir(req.body, { colors: true, depth: null });
 	} else {
 		console.log("\n📦 Request Body: (empty)");
 	}
@@ -51,14 +43,7 @@ export function loggingMiddleware(req, res, next) {
 		console.log(`\n✅ Response sent in ${duration}ms`);
 		if (data) {
 			console.log("📤 Response data:");
-			console.log(
-				util.inspect(data, {
-					colors: true,
-					depth: null,
-					compact: false,
-					maxArrayLength: 10, // Limit array output
-				}),
-			);
+			console.dir(data, { colors: true, depth: null, maxArrayLength: 10 });
 		}
 		console.log("─".repeat(50));
 		return originalJson(data);

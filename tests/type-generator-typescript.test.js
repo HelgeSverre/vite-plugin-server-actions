@@ -250,7 +250,7 @@ describe("Type Generator - TypeScript Support", () => {
 	});
 
 	describe("Enhanced Client Proxy Generation", () => {
-		it("should generate client proxy with TypeScript type comments", () => {
+		it("should strip server JSDoc from the client proxy", () => {
 			const moduleName = "todo_module";
 			const functionDetails = [
 				{
@@ -272,12 +272,10 @@ describe("Type Generator - TypeScript Support", () => {
 
 			const proxy = generateEnhancedClientProxy(moduleName, functionDetails, options, filePath);
 
-			// Should include JSDoc comments
-			expect(proxy).toContain("Add a new todo");
-			// Should include TypeScript annotations in comments
-			expect(proxy).toContain("@param {string} text");
-			expect(proxy).toContain('@param {"low" | "medium" | "high"} [priority]');
-			expect(proxy).toContain("@returns {Promise<Todo>}");
+			expect(proxy).not.toContain("Add a new todo");
+			expect(proxy).not.toContain("@param");
+			expect(proxy).not.toContain("@returns");
+			expect(proxy).toContain("export async function addTodo");
 		});
 
 		it("should include development-time type validation hints", () => {

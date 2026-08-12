@@ -45,8 +45,8 @@ export async function extractSchemas(serverFunctions) {
  * mounted via app.use. Function entries are embedded verbatim via
  * fn.toString() - but only when static analysis proves they reference nothing
  * outside their own scope and runtime globals, because a serialized function
- * loses its defining module scope. Non-embeddable functions are excluded with
- * a prominent build warning.
+ * loses its defining module scope. Non-embeddable functions fail the build so
+ * configured security middleware can never disappear silently.
  *
  * @param {object} options - Plugin options (middleware, apiPrefix)
  * @param {string} rootDir - Vite project root, used to resolve string entries
@@ -97,12 +97,11 @@ export function generateMiddlewareCode(
 		const analysis = analyzeMiddlewareSource(source);
 		if (!analysis.serializable) {
 			const reason = analysis.error || `captures non-global identifier(s): ${analysis.freeVariables.join(", ")}`;
-			warnDropped(
-				`[Vite Server Actions] WARNING: ${label} ${reason}. ` +
-					`Serialized functions lose their surrounding scope, so it was EXCLUDED from the generated production server. ` +
+			throw new Error(
+				`[Vite Server Actions] ${label} ${reason}. ` +
+					`The production build was stopped because excluding configured middleware could remove a security control. ` +
 					`Pass a module path string (relative to the Vite root) whose default export is the middleware instead.`,
 			);
-			return;
 		}
 
 		if (analysis.globalReferences.length > 0) {

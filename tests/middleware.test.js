@@ -6,6 +6,7 @@ import { generateMiddlewareCode } from "../src/build-utils.js";
 describe("loggingMiddleware", () => {
 	let mockReq, mockRes, mockNext;
 	let consoleLogSpy;
+	let consoleDirSpy;
 
 	beforeEach(() => {
 		mockReq = {
@@ -25,10 +26,12 @@ describe("loggingMiddleware", () => {
 
 		mockNext = vi.fn();
 		consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		consoleDirSpy = vi.spyOn(console, "dir").mockImplementation(() => {});
 	});
 
 	afterEach(() => {
 		consoleLogSpy.mockRestore();
+		consoleDirSpy.mockRestore();
 	});
 
 	it("should log action trigger details", () => {
@@ -164,13 +167,10 @@ describe("analyzeMiddlewareSource", () => {
 		expect(result.freeVariables).toContain("secret");
 	});
 
-	it("rejects the built-in logging middleware (captures the util import)", () => {
-		// The exact identifier differs between runtimes (vitest's SSR transform
-		// rewrites `util` to a generated import binding) - what matters is that
-		// the captured import is detected as a free variable
+	it("accepts the built-in logging middleware as self-contained", () => {
 		const result = analyzeMiddlewareSource(loggingMiddleware.toString());
-		expect(result.serializable).toBe(false);
-		expect(result.freeVariables.length).toBeGreaterThan(0);
+		expect(result.serializable).toBe(true);
+		expect(result.freeVariables).toEqual([]);
 	});
 
 	it("rejects sources that are not valid standalone expressions", () => {

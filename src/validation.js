@@ -389,7 +389,22 @@ export function createValidationMiddleware(options = {}) {
 				// Schema expects multiple arguments (tuple)
 				validationData = req.body;
 			} else {
-				// Schema expects single argument (first element of array)
+				// A non-tuple schema covers exactly one argument. Reject surplus
+				// values instead of passing attacker-controlled arguments around the
+				// declared validation boundary.
+				if (req.body.length > 1) {
+					return res.status(400).json(
+						createErrorResponse(400, "Validation failed", "VALIDATION_ERROR", {
+							validationErrors: [
+								{
+									path: "root",
+									message: "A non-tuple schema accepts exactly one function argument",
+									code: "too_many_arguments",
+								},
+							],
+						}),
+					);
+				}
 				validationData = req.body[0];
 			}
 
@@ -405,8 +420,7 @@ export function createValidationMiddleware(options = {}) {
 			if (schema._def?.typeName === "ZodTuple") {
 				req.body = result.data;
 			} else {
-				// Only the first argument is validated - preserve any remaining arguments
-				req.body = [result.data, ...req.body.slice(1)];
+				req.body = [result.data];
 			}
 
 			next();

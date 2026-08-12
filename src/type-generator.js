@@ -279,17 +279,6 @@ export function generateEnhancedClientProxy(moduleName, functionDetails, options
 
 	let clientProxy = `\n// vite-server-actions: ${moduleName}\n`;
 
-	// Add TypeScript types if we have detailed information
-	if (functionDetails.length > 0) {
-		clientProxy += `// Auto-generated types for ${filePath}\n`;
-
-		functionDetails.forEach((func) => {
-			if (func.jsdoc) {
-				clientProxy += `${func.jsdoc}\n`;
-			}
-		});
-	}
-
 	// Set proxy flag at module level to prevent false security warnings
 	if (isDev) {
 		clientProxy += `
@@ -308,29 +297,7 @@ if (typeof window !== 'undefined') {
 		// Generate JavaScript signature (without TypeScript types)
 		const jsSignature = generateJavaScriptSignature(func);
 
-		// Generate JSDoc with parameter types if not already present
-		let jsdocComment = func.jsdoc;
-		if (!jsdocComment || !jsdocComment.includes("@param")) {
-			// Generate JSDoc from function information
-			jsdocComment = `/**\n * ${func.jsdoc ? func.jsdoc.replace(/\/\*\*|\*\//g, "").trim() : `Server action: ${func.name}`}`;
-
-			// Add parameter documentation
-			func.params.forEach((param) => {
-				const paramType = param.type || "any";
-				const optionalMark = param.isOptional ? " [" + param.name.replace("?", "") + "]" : " " + param.name;
-				jsdocComment += `\n * @param {${paramType}}${optionalMark}`;
-			});
-
-			// Add return type documentation
-			if (func.returnType) {
-				jsdocComment += `\n * @returns {${func.returnType}}`;
-			}
-
-			jsdocComment += "\n */";
-		}
-
 		clientProxy += `
-${jsdocComment}
 export async ${jsSignature} {
   console.log("[Vite Server Actions] 🚀 - Executing ${func.name}");
   
