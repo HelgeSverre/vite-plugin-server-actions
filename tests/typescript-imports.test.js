@@ -13,8 +13,9 @@ describe("TypeScript imports", () => {
 
 	beforeAll(async () => {
 		// Create a temporary directory for test files
-		// Temp dir must live inside the project root so sanitizePath containment passes.
-		tempDir = await fs.mkdtemp(path.join(process.cwd(), "node_modules", "vsa-ts-imports-"));
+		// Temp dir must live inside the project root so sanitizePath containment passes,
+		// but NOT inside node_modules: files there are never treated as server actions.
+		tempDir = await fs.mkdtemp(path.join(process.cwd(), "vsa-test-tmp", "vsa-ts-imports-"));
 
 		// Create test TypeScript files with imports
 		// types.ts - shared types

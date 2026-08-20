@@ -89,7 +89,9 @@ function generateModuleTypes(moduleName, moduleInfo, wildcardCounts = new Map())
 	});
 
 	let moduleTypes = `// Types for ${filePath}\n`;
-	moduleTypes += `declare module "${filePath}" {\n`;
+	// JSON.stringify produces a valid double-quoted TypeScript string literal, so
+	// quotes/newlines in file names cannot break out of the module declaration
+	moduleTypes += `declare module ${JSON.stringify(filePath)} {\n`;
 	moduleTypes += moduleBody;
 	moduleTypes += `}\n\n`;
 
@@ -106,7 +108,7 @@ function generateModuleTypes(moduleName, moduleInfo, wildcardCounts = new Map())
 			moduleTypes += `// and TypeScript would merge their ambient declarations into one module\n\n`;
 			continue;
 		}
-		moduleTypes += `declare module "${pattern}" {\n`;
+		moduleTypes += `declare module ${JSON.stringify(pattern)} {\n`;
 		moduleTypes += moduleBody;
 		moduleTypes += `}\n\n`;
 	}

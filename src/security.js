@@ -173,6 +173,23 @@ export function isPlainFileName(fileName) {
 }
 
 /**
+ * Escape a route path so every segment matches literally when handed to
+ * Express's router. Route paths are derived from file and directory names via
+ * routeTransform, and unescaped path-to-regexp metacharacters (`:`, `*`, `?`,
+ * `(`, `)`, `[`, `]`, ...) would be interpreted as route patterns - e.g. a
+ * file named ":id.server.js" would register "/api/:id/..." as a wildcard that
+ * matches ANY single URL segment, hijacking or shadowing other routes.
+ * @param {string} routePath - Route path produced by routeTransform
+ * @returns {string} Route path whose segments match literally
+ */
+export function escapeRoutePath(routePath) {
+	return String(routePath)
+		.split("/")
+		.map((segment) => segment.replace(/[^A-Za-z0-9_-]/g, "\\$&"))
+		.join("/");
+}
+
+/**
  * Standard error response factory
  * @param {number} status - HTTP status code
  * @param {string} message - Error message

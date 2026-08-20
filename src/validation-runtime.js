@@ -141,18 +141,12 @@ export function createValidationMiddleware(options = {}) {
 					.json(createErrorResponse(400, "Validation failed", "VALIDATION_ERROR", { validationErrors }));
 			}
 
-			// Other (non-Zod) error - same shape and status as development
+			// Other (non-Zod) error - same shape and status as development.
+			// No internal details are ever embedded in the response: the generated
+			// server is a production artifact and must not key debug output off
+			// ambient NODE_ENV values. The error is logged server-side above.
 			console.error("Validation middleware error:", error);
-			return res
-				.status(500)
-				.json(
-					createErrorResponse(
-						500,
-						"Internal validation error",
-						"VALIDATION_INTERNAL_ERROR",
-						process.env.NODE_ENV === "development" ? { message: error.message, stack: error.stack } : null,
-					),
-				);
+			return res.status(500).json(createErrorResponse(500, "Internal validation error", "VALIDATION_INTERNAL_ERROR"));
 		}
 	};
 }

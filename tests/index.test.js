@@ -51,8 +51,22 @@ describe("vite-plugin-server-actions", () => {
 	describe("resolveId", () => {
 		it("should resolve .server.js files", async () => {
 			const plugin = serverActions();
-			const result = await plugin.resolveId("todo.server.js", "/src/App.svelte");
+			// Relative specifiers are resolved (with leading ./ segments stripped
+			// for include-pattern matching)
+			const result = await plugin.resolveId("./todo.server.js", "/src/App.svelte");
 			expect(result).toContain("todo.server.js");
+		});
+
+		it("should not resolve bare specifiers (package imports)", async () => {
+			const plugin = serverActions();
+			const result = await plugin.resolveId("some-pkg/todo.server.js", "/src/App.svelte");
+			expect(result).toBeNull();
+		});
+
+		it("should not resolve bare specifiers (package imports)", async () => {
+			const plugin = serverActions();
+			const result = await plugin.resolveId("some-pkg/todo.server.js", "/src/App.svelte");
+			expect(result).toBeNull();
 		});
 
 		it("should not resolve non-server files", async () => {

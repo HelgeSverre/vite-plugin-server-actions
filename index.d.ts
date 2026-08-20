@@ -112,6 +112,26 @@ export interface ServerActionOptions {
 	serverFileName?: string;
 
 	/**
+	 * Whether files inside node_modules may be treated as server actions.
+	 * Disabled by default: a dependency shipping "*.server.js" files must not
+	 * gain HTTP endpoints or land in the production actions bundle just
+	 * because those files get imported. Enable this only if your server
+	 * actions live in a workspace package that is symlinked into node_modules.
+	 * @default false
+	 */
+	allowNodeModules?: boolean;
+
+	/**
+	 * When true, the GENERATED production server includes internal error
+	 * details (message + stack trace) in 500 responses. This is a deliberate,
+	 * explicit opt-in for debugging - the generated server never keys its
+	 * behavior off ambient NODE_ENV values. The error message is always
+	 * logged to the server console regardless of this option.
+	 * @default false
+	 */
+	serverErrorDetails?: boolean;
+
+	/**
 	 * Suppress the plugin's own informational console output (dev startup
 	 * feedback, HMR cleanup logs, advisory warnings). Errors always print,
 	 * and build warnings about middleware excluded from the production
@@ -268,5 +288,12 @@ export declare function setupOpenAPIEndpoints(
 ): void;
 
 export declare function createSwaggerMiddleware(spec: any, options?: { swaggerOptions?: any }): RequestHandler[];
+
+/**
+ * Escape a route path so every segment matches literally when handed to
+ * Express's router. Useful when generating your own route registrations from
+ * custom routeTransform output.
+ */
+export declare function escapeRoutePath(routePath: string): string;
 
 export default serverActions;

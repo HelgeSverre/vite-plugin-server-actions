@@ -4,8 +4,9 @@ import path from "path";
 import { pathToFileURL } from "url";
 import serverActions, { generateClientProxy } from "../src/index.js";
 
-// Temp dir must live inside the project root so sanitizePath containment passes.
-const tempDir = path.join(process.cwd(), "node_modules", `vsa-proxy-${process.pid}-${Date.now()}`);
+// Temp dir must live inside the project root so sanitizePath containment passes,
+// but NOT inside node_modules: files there are never treated as server actions.
+const tempDir = path.join(process.cwd(), "vsa-test-tmp", `vsa-proxy-${process.pid}-${Date.now()}`);
 
 const routeTransform = (filePath, functionName) => {
 	const base = path.basename(filePath).replace(/\.server\.(js|ts)$/, "");

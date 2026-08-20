@@ -6,7 +6,7 @@ import os from "os";
 import path from "path";
 import esbuild from "esbuild";
 import serverActions from "../src/index.js";
-import { createSecureModuleName, isValidModuleName } from "../src/security.js";
+import { createSecureModuleName, isValidModuleName, escapeRoutePath } from "../src/security.js";
 
 // Tests for production build behavior:
 // - module names used as bare JS identifiers in generated code must be valid
@@ -19,7 +19,7 @@ import { createSecureModuleName, isValidModuleName } from "../src/security.js";
 // - generated prod server request-body/stack-trace handling
 
 // Fixtures live inside the project so sanitizePath containment passes
-const fixtureRoot = path.join(process.cwd(), "node_modules", `vsa-regress-build-${process.pid}-${Date.now()}`);
+const fixtureRoot = path.join(process.cwd(), "vsa-test-tmp", `vsa-regress-build-${process.pid}-${Date.now()}`);
 const fixtureRelative = path.relative(process.cwd(), fixtureRoot).replace(/\\/g, "/");
 
 async function writeFixture(relativePath, content) {
@@ -195,15 +195,16 @@ describe("path escaping in generated code", () => {
 
 		expect(emitted[".vsa/actions.js"]).toContain("addTodo");
 
-		// The route (which contains the quote) must be embedded as an escaped string
+		// The route (which contains the quote) must be pattern-escaped so Express
+		// matches every segment literally, and embedded as a valid string literal
 		const expectedRoute = `/api/${fixtureRelative}/o'brien/todo/addTodo`;
-		expect(emitted["server.js"]).toContain(JSON.stringify(expectedRoute));
+		expect(emitted["server.js"]).toContain(JSON.stringify(escapeRoutePath(expectedRoute)));
 
 		// The emitted server must parse as valid JavaScript
 		await expect(esbuild.transform(emitted["server.js"], { loader: "js" })).resolves.toBeDefined();
 	});
 
-	it("generates prod server routes with an array body guard and dev-only error details", async () => {
+	it("generates prod server routes with an array body guard and no ambient-env error details", async () => {
 		const plainFile = await writeFixture(
 			"plain/basic.server.js",
 			"export async function ping() {\n\treturn 'pong';\n}\n",
@@ -217,10 +218,16 @@ describe("path escaping in generated code", () => {
 		expect(serverCode).toContain("Array.isArray(req.body)");
 		expect(serverCode).toContain("INVALID_REQUEST_BODY");
 
-		// Stack traces/error details must be opt-in via NODE_ENV=development,
-		// not leak whenever NODE_ENV merely isn't 'production'
-		expect(serverCode).toContain("process.env.NODE_ENV === 'development'");
+		// Stack traces/error details must never be keyed off ambient NODE_ENV
+		// values - the generated server is a production artifact. Debug details
+		// are opt-in via the serverErrorDetails plugin option instead.
+		expect(serverCode).not.toContain("process.env.NODE_ENV === 'development'");
 		expect(serverCode).not.toContain("process.env.NODE_ENV !== 'production'");
+		expect(serverCode).not.toContain("stack: error.stack");
+
+		const detailedPlugin = serverActions({ serverErrorDetails: true });
+		const detailedEmitted = await runBuild(detailedPlugin, [plainFile]);
+		expect(detailedEmitted["server.js"]).toContain("details: { message: error.message, stack: error.stack }");
 	});
 });
 

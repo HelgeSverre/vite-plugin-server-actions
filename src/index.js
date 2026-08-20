@@ -22,6 +22,7 @@ import {
 	createSecureModuleName,
 	createErrorResponse,
 	isPlainFileName,
+	escapeRoutePath,
 } from "./security.js";
 import { createLogger } from "./logger.js";
 import {
@@ -89,7 +90,12 @@ async function discoverSchemasAtBuildTime(serverFunctions, logger) {
 		return {};
 	}
 
-	const outputFile = path.join(os.tmpdir(), `vsa-schemas-${process.pid}-${Date.now()}.json`);
+	// Write into a private mkdtemp directory: a predictable path in the shared
+	// temp directory (e.g. /tmp/vsa-schemas-<pid>-<timestamp>.json) would let a
+	// local attacker pre-plant a symlink and make the worker's write clobber an
+	// arbitrary file, or pre-fill the file that the build reads back.
+	const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "vsa-schemas-"));
+	const outputFile = path.join(tmpDir, "schemas.json");
 	try {
 		await execFileAsync(process.execPath, [SCHEMA_WORKER_PATH, JSON.stringify({ modules }), outputFile], {
 			timeout: 30_000,
@@ -105,7 +111,7 @@ async function discoverSchemasAtBuildTime(serverFunctions, logger) {
 		);
 		return {};
 	} finally {
-		await fs.unlink(outputFile).catch(() => {});
+		await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
 	}
 }
 
@@ -286,6 +292,16 @@ const DEFAULT_OPTIONS = {
 	middleware: [],
 	serverFileName: "server.js",
 	silent: false,
+	// Files inside node_modules are never treated as server actions by default:
+	// a dependency shipping "*.server.js" must not gain HTTP endpoints or land in
+	// the production actions bundle just because it gets imported. Workspace /
+	// monorepo packages that symlink into node_modules can opt back in.
+	allowNodeModules: false,
+	// When true, the GENERATED production server includes internal error details
+	// (message + stack) in 500 responses. Off by default - the generated server
+	// is a production artifact and must not key debug output off ambient
+	// NODE_ENV values. Server-side console.error always logs the message.
+	serverErrorDetails: false,
 	moduleNameTransform: pathUtils.createModuleName,
 	routeTransform: (filePath, functionName) => {
 		// Default to clean hierarchical paths: /api/actions/todo/create
@@ -299,6 +315,9 @@ const DEFAULT_OPTIONS = {
 		adapter: "zod",
 	},
 };
+
+// Matches any path containing a "node_modules" segment (POSIX or Windows separators)
+const NODE_MODULES_SEGMENT_RE = /(^|[\\/])node_modules[\\/]/;
 
 function shouldProcessFile(filePath, options, rootDir = process.cwd()) {
 	// Normalize the options to arrays
@@ -327,7 +346,19 @@ function shouldProcessFile(filePath, options, rootDir = process.cwd()) {
 	// Check if file matches any exclude pattern
 	const isExcluded = excludePatterns.length > 0 && excludePatterns.some(matchesPattern);
 
-	return isIncluded && !isExcluded;
+	if (!isIncluded || isExcluded) {
+		return false;
+	}
+
+	// Server actions are a project-file convention. A dependency's "*.server.js"
+	// file that happens to be imported must never become an HTTP endpoint or an
+	// entry in the production actions bundle. This check runs on every candidate
+	// so it catches absolute paths, root-relative paths, and Windows separators.
+	if (!options.allowNodeModules && candidates.some((candidate) => NODE_MODULES_SEGMENT_RE.test(candidate))) {
+		return false;
+	}
+
+	return true;
 }
 
 export default function serverActions(userOptions = {}) {
@@ -371,6 +402,7 @@ export default function serverActions(userOptions = {}) {
 	const moduleVersions = new Map(); // Per-file change counters for busting Node's ESM cache
 	const moduleNameOwners = new Map(); // Module name -> file id; the first claimant owns the name for the whole session
 	let registeredEndpoints = new Set(); // Endpoints already registered on the dev Express app
+	const warnedDependencyServerImports = new Set(); // importer->source pairs already warned about
 	let app;
 	let openAPIGenerator;
 	let validationMiddleware = null;
@@ -552,10 +584,34 @@ export default function serverActions(userOptions = {}) {
 				return null;
 			}
 
-			// Handle server file imports from client code
-			if (importer && shouldProcessFile(source, options, viteConfig?.root)) {
-				const resolvedPath = path.resolve(path.dirname(importer), source);
-				return resolvedPath;
+			// Dependency ".server.js" imports are NOT server actions (see the
+			// node_modules policy in shouldProcessFile) - warn once so the semantic
+			// gap is visible instead of silent.
+			if (importer && /\.server\.(js|ts)$/.test(source) && NODE_MODULES_SEGMENT_RE.test(`${source}\n${importer}`)) {
+				const warnKey = `${importer} -> ${source}`;
+				if (!warnedDependencyServerImports.has(warnKey)) {
+					warnedDependencyServerImports.add(warnKey);
+					logger.warn(
+						`[Vite Server Actions] "${source}" (imported by ${importer}) lives inside node_modules and is ` +
+							`NOT treated as a server action. It will not be exposed as an endpoint or bundled into the ` +
+							`production actions bundle. Move the code into the project if it should be a server action.`,
+					);
+				}
+			}
+
+			// Handle server file imports from client code. Bare specifiers (package
+			// imports) must fall through to Vite's resolver so they land on the
+			// real file inside node_modules, where the node_modules policy applies.
+			if (importer && (source.startsWith(".") || source.startsWith("/"))) {
+				// Strip leading ./ and ../ segments for include-pattern matching -
+				// minimatch never matches paths with dot segments, but a relative
+				// import like "../lib/util.server.js" can legitimately name a
+				// server action file
+				const patternSource = source.replace(/^(?:\.\.?\/)+/, "");
+				if (shouldProcessFile(patternSource, options, viteConfig?.root)) {
+					const resolvedPath = path.resolve(path.dirname(importer), source);
+					return resolvedPath;
+				}
 			}
 
 			// Handle TypeScript imports from server files
@@ -776,7 +832,10 @@ export default function serverActions(userOptions = {}) {
 						}
 
 						uniqueFunctions.forEach((functionName) => {
-							const routePath = options.routeTransform(relativePath, functionName);
+							// Escape path-to-regexp metacharacters so route segments derived
+							// from file/directory names always match literally (a file named
+							// ":id.server.js" must not create a wildcard route)
+							const routePath = escapeRoutePath(options.routeTransform(relativePath, functionName));
 							const endpoint = `${options.apiPrefix}/${routePath}`;
 
 							// load() re-runs on every HMR invalidation, but Express routes cannot be
@@ -1192,7 +1251,11 @@ export default function serverActions(userOptions = {}) {
 					.flatMap(([moduleName, { functions, filePath }]) =>
 						functions
 							.map((functionName) => {
-								const routePath = options.routeTransform(filePath, functionName);
+								// Escape path-to-regexp metacharacters so route segments derived
+								// from file/directory names always match literally in the
+								// generated server (a file named ":id.server.js" must not
+								// produce a wildcard "/api/:id/..." route)
+								const routePath = escapeRoutePath(options.routeTransform(filePath, functionName));
 								const middlewareCall = options.validation?.enabled
 									? `createContextualValidationMiddleware('${moduleName}', '${functionName}'), `
 									: "";
@@ -1225,8 +1288,11 @@ export default function serverActions(userOptions = {}) {
                   status,
                   message: status === 500 ? 'Internal server error' : error.message,
                   code: error.code || 'SERVER_ACTION_ERROR',
-                  timestamp: new Date().toISOString(),
-                  ...(process.env.NODE_ENV === 'development' ? { details: { message: error.message, stack: error.stack } } : {})
+                  timestamp: new Date().toISOString(),${
+										options.serverErrorDetails
+											? "\n                  details: { message: error.message, stack: error.stack }"
+											: ""
+									}
                 });
               }
             });
@@ -1413,3 +1479,4 @@ export { middleware };
 export { generateClientProxy };
 export { createValidationMiddleware, ValidationAdapter, ZodAdapter, SchemaDiscovery, adapters } from "./validation.js";
 export { OpenAPIGenerator, setupOpenAPIEndpoints, createSwaggerMiddleware } from "./openapi.js";
+export { escapeRoutePath } from "./security.js";

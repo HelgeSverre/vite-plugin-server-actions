@@ -4,8 +4,9 @@ import http from "http";
 import path from "path";
 import serverActions from "../src/index.js";
 
-// Temp dir must live inside the project root so sanitizePath containment passes.
-const tempDir = path.join(process.cwd(), "node_modules", `vsa-hmr-${process.pid}-${Date.now()}`);
+// Temp dir must live inside the project root so sanitizePath containment passes,
+// but NOT inside node_modules: files there are never treated as server actions.
+const tempDir = path.join(process.cwd(), "vsa-test-tmp", `vsa-hmr-${process.pid}-${Date.now()}`);
 
 // Simple route transform so endpoints don't include the temp dir path
 const routeTransform = (filePath, functionName) => {

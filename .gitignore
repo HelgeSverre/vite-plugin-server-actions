@@ -36,3 +36,6 @@ examples/*/uploads/
 
 # Coverage output
 coverage/
+
+# vitest fixture dirs (tests write temp server-action fixtures here)
+vsa-test-tmp/

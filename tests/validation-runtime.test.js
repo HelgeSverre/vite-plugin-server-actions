@@ -73,7 +73,7 @@ describe("validation-runtime (production validation middleware)", () => {
 			expect(JSON.stringify(payload)).not.toContain("boom");
 		});
 
-		it("includes error details only when explicitly in development", async () => {
+		it("never includes error details, even in development", async () => {
 			process.env.NODE_ENV = "development";
 
 			const middleware = createValidationMiddleware({ schemaDiscovery: new SchemaDiscovery() });
@@ -83,9 +83,10 @@ describe("validation-runtime (production validation middleware)", () => {
 
 			expect(mockRes.status).toHaveBeenCalledWith(500);
 			const payload = mockRes.json.mock.calls[0][0];
-			expect(payload.details).toBeDefined();
-			expect(payload.details.message).toContain("boom");
-			expect(payload.details.stack).toEqual(expect.any(String));
+			// The generated server is a production artifact: internal details must
+			// never be keyed off ambient NODE_ENV values
+			expect(payload.details).toBeUndefined();
+			expect(JSON.stringify(payload)).not.toContain("boom");
 		});
 	});
 });

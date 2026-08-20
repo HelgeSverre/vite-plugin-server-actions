@@ -7,8 +7,9 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Temp dir must live inside the project root so sanitizePath containment passes.
-const tempDir = path.join(process.cwd(), "node_modules", `vsa-ts-plugin-${process.pid}-${Date.now()}`);
+// Temp dir must live inside the project root so sanitizePath containment passes,
+// but NOT inside node_modules: files there are never treated as server actions.
+const tempDir = path.join(process.cwd(), "vsa-test-tmp", `vsa-ts-plugin-${process.pid}-${Date.now()}`);
 
 beforeAll(async () => {
 	await fs.mkdir(tempDir, { recursive: true });
@@ -25,7 +26,7 @@ describe("TypeScript support in plugin", () => {
 		});
 
 		const resolveId = plugin.resolveId;
-		const tsFilePath = "actions/test.server.ts";
+		const tsFilePath = "./actions/test.server.ts";
 		const importer = "/project/src/index.ts";
 
 		// The source matches the include patterns, so it MUST resolve relative

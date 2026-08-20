@@ -8,9 +8,9 @@ import { sanitizePath } from "../src/security.js";
 import { loggingMiddleware } from "../src/middleware.js";
 import { defaultSchemaDiscovery } from "../src/validation.js";
 
-// Temp dir must live inside the project root so sanitizePath containment passes.
-// node_modules is not watched by git and is guaranteed writable.
-const tempDir = path.join(process.cwd(), "node_modules", `vsa-regress-${process.pid}-${Date.now()}`);
+// Temp dir must live inside the project root so sanitizePath containment passes,
+// but NOT inside node_modules: files there are never treated as server actions.
+const tempDir = path.join(process.cwd(), "vsa-test-tmp", `vsa-regress-${process.pid}-${Date.now()}`);
 
 // Simple route transform so endpoints don't include the temp dir path
 const routeTransform = (filePath, functionName) => {

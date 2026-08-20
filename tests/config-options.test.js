@@ -14,7 +14,7 @@ import { isPlainFileName } from "../src/security.js";
 
 // Fixtures live inside the project so sanitizePath containment passes and
 // booted servers can resolve express from the project's node_modules
-const fixtureRoot = path.join(process.cwd(), "node_modules", `vsa-config-options-${process.pid}-${Date.now()}`);
+const fixtureRoot = path.join(process.cwd(), "vsa-test-tmp", `vsa-config-options-${process.pid}-${Date.now()}`);
 
 async function writeFixture(relativePath, content) {
 	const filePath = path.join(fixtureRoot, relativePath);

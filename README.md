@@ -642,6 +642,8 @@ readAllowedFile.schema = FileSchema;
 | `middleware`     | `Function \| string \| (Function\|string)[]` | `[]`                                   | Middleware mounted on the API prefix: functions or module paths (see [Middleware](#middleware)) |
 | `routeTransform` | `Function`                                   | `pathUtils.createCleanRoute`           | Customize URL generation (see [Routing](#routing))                                              |
 | `serverFileName` | `string`                                     | `"server.js"`                          | Filename of the generated production server in `dist/` (plain filename, no path separators)     |
+| `allowNodeModules` | `boolean`                                  | `false`                                | Whether files inside `node_modules` may be treated as server actions (enable for workspace packages symlinked into `node_modules`) |
+| `serverErrorDetails` | `boolean`                                | `false`                                | Include internal error details (message + stack) in the generated production server's 500 responses - explicit opt-in, never keyed off NODE_ENV |
 | `silent`         | `boolean`                                    | `false`                                | Suppress the plugin's informational console output (see note below)                             |
 | `validation`     | `Object`                                     | `{ enabled: false }`                   | Validation settings                                                                             |
 | `openAPI`        | `Object`                                     | `{ enabled: false }`                   | OpenAPI documentation settings                                                                  |
@@ -764,6 +766,8 @@ Everything crossing the client/server boundary travels as JSON, so arguments and
 ### Security Model
 
 - **Server code isolation** - Server files (`.server.js` and `.server.ts`) are never bundled into client code, and development builds include safety checks to prevent accidental imports. In production, the client assets and private build artifacts are co-located in `dist/`: the configured `serverFileName` output (default `server.js`), `actions.js`, `actions.d.ts`, and (when enabled) the OpenAPI output. The generated server blocks direct static requests for those private artifacts before serving client assets, but the action bundle still exists on the server filesystem.
+- **Dependencies are not server actions** - Files inside `node_modules` are never treated as server actions, so a dependency shipping a `*.server.js` file cannot gain HTTP endpoints or land in the production actions bundle. Enable `allowNodeModules` only if your server actions live in a workspace package that is symlinked into `node_modules`.
+- **Route paths match literally** - Route segments derived from file and directory names are escaped before being registered with Express, so filenames containing characters like `:` or `*` cannot alter route-matching semantics (e.g. a file named `:id.server.js` will not create a wildcard route).
 - **Path containment** - Server module file paths are sanitized and contained to the Vite project root (plus Vite's explicitly allowed directories); traversal attempts are rejected
 - **Module-name sanitization** - Module names are derived from file paths and reduced to safe JavaScript identifiers (no dots, no reserved words) before being embedded in generated code
 

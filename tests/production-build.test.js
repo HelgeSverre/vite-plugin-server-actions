@@ -239,11 +239,12 @@ describe("Production Build", () => {
 			expect(serverCode).toContain("Array.isArray(req.body)");
 			expect(serverCode).toContain("INVALID_REQUEST_BODY");
 
-			// Error details are only exposed when explicitly running in development,
-			// never via the leaky "not production" check (covers the route handlers
-			// AND the inlined validation runtime)
-			expect(serverCode).toContain("process.env.NODE_ENV === 'development'");
+			// Error details must never be keyed off ambient NODE_ENV values in the
+			// generated server (covers the route handlers AND the inlined
+			// validation runtime) - debug details are an explicit plugin option
+			expect(serverCode).not.toContain("process.env.NODE_ENV");
 			expect(serverCode).not.toMatch(/NODE_ENV\s*!==\s*['"]production['"]/);
+			expect(serverCode).not.toContain("stack: error.stack");
 
 			// OpenAPI spec must be read and served
 			expect(serverCode).toContain("openapi.json");

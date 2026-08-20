@@ -16,7 +16,7 @@ import serverActions from "../src/index.js";
 // - DEV: middleware mounts on the apiPrefix so OPTIONS preflights pass through
 
 // Fixtures live inside the project so sanitizePath containment passes
-const fixtureRoot = path.join(process.cwd(), "node_modules", `vsa-mw-${process.pid}-${Date.now()}`);
+const fixtureRoot = path.join(process.cwd(), "vsa-test-tmp", `vsa-mw-${process.pid}-${Date.now()}`);
 
 // Basename-based routes so endpoints don't include the temp dir path
 const routeTransform = (filePath, functionName) => {

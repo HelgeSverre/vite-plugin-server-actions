@@ -10,7 +10,7 @@ import serverActions from "../src/index.js";
 // generated implementation. These tests exercise the running server, because
 // checking snippets in generated source cannot establish that Express will not
 // serve an artifact first.
-const fixtureRoot = path.join(process.cwd(), "node_modules", `vsa-static-${process.pid}-${Date.now()}`);
+const fixtureRoot = path.join(process.cwd(), "vsa-test-tmp", `vsa-static-${process.pid}-${Date.now()}`);
 const serverProcesses = [];
 
 const routeTransform = (filePath, functionName) => {

@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-08-21
+
+A security-audit release: an adversarial review of the plugin and its generated production server found and fixed three exploitable issues (dependency auto-exposure, route-pattern injection, ambient-NODE_ENV error leakage) plus two lower-severity build-tooling flaws. Every fix is pinned by new regression tests that reproduce the original exploits against a running dev server and a spawned production server.
+
+### Security
+
+- **Dependencies are no longer treated as server actions** - Files inside `node_modules` never become HTTP endpoints or entries in the production actions bundle. Previously, any dependency shipping a `*.server.js` file that got imported was silently bundled into `dist/.vsa/actions.js` and exposed as an unauthenticated public POST endpoint in production (and its raw source was served to the browser in dev, because Vite's `?v=` cache-buster query made the include pattern miss). Enable `allowNodeModules: true` only for workspace packages symlinked into `node_modules`. A one-time warning is logged when a `node_modules` `.server.js` import is detected.
+- **Route paths can no longer inject Express route patterns** - Route segments derived from file/directory names are escaped before registration in both dev and the generated production server. A file named `:id.server.js` previously registered `/api/:id/...` as a wildcard matching ANY single URL segment, hijacking other routes; it now matches only literally.
+- **The generated production server no longer keys error details off `NODE_ENV`** - Booting `dist/server.js` with `NODE_ENV=development` previously served full stack traces and absolute filesystem paths to every client. Internal error details are now opt-in via the explicit `serverErrorDetails` option (default `false`); the same fix applies to the embedded validation runtime.
+- **Build-time schema discovery writes to a private temp directory** - The worker output path was predictable (`$TMPDIR/vsa-schemas-<pid>-<timestamp>.json`) and written without exclusive-create semantics, letting a local attacker pre-plant a symlink to clobber arbitrary files as the build user or poison the emitted OpenAPI spec. It now uses `fs.mkdtemp`.
+- **Generated `.d.ts` declarations cannot be broken out of via crafted file names** - `declare module "..."` names are now emitted as properly escaped string literals.
+
+### Added
+
+- **`allowNodeModules` option** - Opt back into processing files inside `node_modules` (for workspace packages symlinked into `node_modules`). Default `false`.
+- **`serverErrorDetails` option** - Explicitly include internal error details (message + stack trace) in the generated production server's 500 responses. Default `false`.
+- **`escapeRoutePath` export** - Escape route segments for literal Express matching when generating your own registrations from custom `routeTransform` output.
+
+### Changed
+
+- Bare specifiers (package imports) are no longer resolved relative to the importing file by the plugin's `resolveId`; they fall through to Vite's resolver, where the `node_modules` policy applies. Relative imports (`./x.server.js`, `../lib/x.server.js`) continue to work.
+
 ## [1.4.1] - 2026-08-12
 
 ### Security
